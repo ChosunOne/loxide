@@ -3,6 +3,7 @@ use std::str::Chars;
 
 use crate::token::{Token, TokenData};
 
+#[derive(Debug)]
 pub struct Scanner<'a> {
     line: usize,
     iter: Peekable<Chars<'a>>,
@@ -16,162 +17,86 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    pub fn scan(&mut self) -> Token {
-        self.skip_whitespace();
-        if self.is_at_end() {
-            return Token::Eof(TokenData {
-                lexeme: "".into(),
-                line: self.line,
-            });
-        };
-        let c = self.iter.peek().unwrap();
-        if c.is_alphabetic() {
-            return self.identifier();
-        }
-        if c.is_ascii_digit() {
-            return self.number();
-        }
-
-        let token_data = TokenData {
-            lexeme: c.to_string(),
-            line: self.line,
-        };
-
-        match self.iter.next().unwrap_or('\0') {
-            '(' => Token::LeftParen(token_data),
-            ')' => Token::RightParen(token_data),
-            '{' => Token::LeftBrace(token_data),
-            '}' => Token::RightBrace(token_data),
-            ';' => Token::Semicolon(token_data),
-            ',' => Token::Comma(token_data),
-            '.' => Token::Dot(token_data),
-            '-' => Token::Minus(token_data),
-            '+' => Token::Plus(token_data),
-            '/' => Token::Slash(token_data),
-            '*' => Token::Star(token_data),
-            '!' => {
-                if self.iter.next_if_eq(&'=').is_some() {
-                    Token::BangEqual(TokenData {
-                        lexeme: "!=".into(),
-                        line: token_data.line,
-                    })
-                } else {
-                    Token::Bang(token_data)
-                }
-            }
-            '=' => {
-                if self.iter.next_if_eq(&'=').is_some() {
-                    Token::EqualEqual(TokenData {
-                        lexeme: "==".into(),
-                        line: token_data.line,
-                    })
-                } else {
-                    Token::Equal(token_data)
-                }
-            }
-            '<' => {
-                if self.iter.next_if_eq(&'=').is_some() {
-                    Token::LessEqual(TokenData {
-                        lexeme: "<=".into(),
-                        line: token_data.line,
-                    })
-                } else {
-                    Token::Less(token_data)
-                }
-            }
-            '>' => {
-                if self.iter.next_if_eq(&'=').is_some() {
-                    Token::GreaterEqual(TokenData {
-                        lexeme: ">=".into(),
-                        line: token_data.line,
-                    })
-                } else {
-                    Token::Greater(token_data)
-                }
-            }
-            '"' => self.string(),
-            _ => Token::Error(TokenData {
-                lexeme: format!("Unexpected character '{}'", token_data.lexeme),
-                line: token_data.line,
-            }),
-        }
-    }
-
-    fn identifier(&mut self) -> Token {
+    fn identifier(&mut self) -> Option<Token> {
         let mut lexeme_builder = vec![];
-        let mut c = *self.iter.peek().unwrap_or(&'\0');
 
-        while c.is_alphanumeric() {
+        while let Some(&c) = self.iter.peek() {
+            if !c.is_alphanumeric() {
+                break;
+            }
             lexeme_builder.push(c);
             self.iter.next();
-            c = *self.iter.peek().unwrap_or(&'\0');
         }
 
         let lexeme: String = lexeme_builder.into_iter().collect();
-        Token::Identifier(TokenData {
+        Some(Token::Identifier(TokenData {
             line: self.line,
             lexeme,
-        })
+        }))
     }
 
-    fn number(&mut self) -> Token {
+    fn number(&mut self) -> Option<Token> {
         let mut lexeme_builder = vec![];
-        let mut c = *self.iter.peek().unwrap_or(&'\0');
 
-        while c.is_ascii_digit() {
+        while let Some(&c) = self.iter.peek() {
+            if !c.is_ascii_digit() {
+                break;
+            }
             lexeme_builder.push(c);
             self.iter.next();
-            c = *self.iter.peek().unwrap_or(&'\0');
         }
 
-        let peek_next = self.peek_next().unwrap_or('\0');
-        if c == '.' && peek_next.is_ascii_digit() {
-            lexeme_builder.push(c);
-            self.iter.next();
-            c = *self.iter.peek().unwrap_or(&'\0');
-            while c.is_ascii_digit() {
+        let peek_next = self.peek_next().take_if(|x| x.is_ascii_digit());
+        let next = self.iter.peek();
+        if next == Some(&'.') && peek_next.is_some() {
+            lexeme_builder.push(*next?);
+            self.iter.next(); // Consume the '.'
+            while let Some(&c) = self.iter.peek() {
+                if !c.is_ascii_digit() {
+                    break;
+                }
                 lexeme_builder.push(c);
                 self.iter.next();
-                c = *self.iter.peek().unwrap_or(&'\0');
             }
         }
 
         let lexeme: String = lexeme_builder.into_iter().collect();
-        Token::Number(TokenData {
+        Some(Token::Number(TokenData {
             line: self.line,
             lexeme,
-        })
+        }))
     }
 
-    fn string(&mut self) -> Token {
+    fn string(&mut self) -> Option<Token> {
         let mut lexeme_builder = vec![];
-        let mut c = *self.iter.peek().unwrap_or(&'\0');
-        while !self.is_at_end() && c != '"' {
+        while let Some(&c) = self.iter.peek() {
+            if c == '"' {
+                break;
+            }
+
             if c == '\n' {
                 self.line += 1;
             }
 
             lexeme_builder.push(c);
-
             self.iter.next();
-            c = *self.iter.peek().unwrap_or(&'\0');
         }
 
         if self.is_at_end() {
-            return Token::Error(TokenData {
+            return Some(Token::Error(TokenData {
                 lexeme: "Unterminated string.".into(),
                 line: self.line,
-            });
+            }));
         }
 
         // Consume closing quote
         self.iter.next();
 
         let lexeme = lexeme_builder.into_iter().collect();
-        Token::String(TokenData {
+        Some(Token::String(TokenData {
             lexeme,
             line: self.line,
-        })
+        }))
     }
 
     fn is_at_end(&mut self) -> bool {
@@ -212,6 +137,91 @@ impl<'a> Scanner<'a> {
     }
 }
 
+impl<'a> Iterator for Scanner<'a> {
+    type Item = Token;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.skip_whitespace();
+        if self.is_at_end() {
+            return Some(Token::Eof(TokenData {
+                lexeme: "".into(),
+                line: self.line,
+            }));
+        };
+        let c = self.iter.peek().unwrap();
+        if c.is_alphabetic() {
+            return self.identifier();
+        }
+        if c.is_ascii_digit() {
+            return self.number();
+        }
+
+        let token_data = TokenData {
+            lexeme: c.to_string(),
+            line: self.line,
+        };
+
+        match self.iter.next()? {
+            '(' => Some(Token::LeftParen(token_data)),
+            ')' => Some(Token::RightParen(token_data)),
+            '{' => Some(Token::LeftBrace(token_data)),
+            '}' => Some(Token::RightBrace(token_data)),
+            ';' => Some(Token::Semicolon(token_data)),
+            ',' => Some(Token::Comma(token_data)),
+            '.' => Some(Token::Dot(token_data)),
+            '-' => Some(Token::Minus(token_data)),
+            '+' => Some(Token::Plus(token_data)),
+            '/' => Some(Token::Slash(token_data)),
+            '*' => Some(Token::Star(token_data)),
+            '!' => {
+                if self.iter.next_if_eq(&'=').is_some() {
+                    Some(Token::BangEqual(TokenData {
+                        lexeme: "!=".into(),
+                        line: token_data.line,
+                    }))
+                } else {
+                    Some(Token::Bang(token_data))
+                }
+            }
+            '=' => {
+                if self.iter.next_if_eq(&'=').is_some() {
+                    Some(Token::EqualEqual(TokenData {
+                        lexeme: "==".into(),
+                        line: token_data.line,
+                    }))
+                } else {
+                    Some(Token::Equal(token_data))
+                }
+            }
+            '<' => {
+                if self.iter.next_if_eq(&'=').is_some() {
+                    Some(Token::LessEqual(TokenData {
+                        lexeme: "<=".into(),
+                        line: token_data.line,
+                    }))
+                } else {
+                    Some(Token::Less(token_data))
+                }
+            }
+            '>' => {
+                if self.iter.next_if_eq(&'=').is_some() {
+                    Some(Token::GreaterEqual(TokenData {
+                        lexeme: ">=".into(),
+                        line: token_data.line,
+                    }))
+                } else {
+                    Some(Token::Greater(token_data))
+                }
+            }
+            '"' => self.string(),
+            _ => Some(Token::Error(TokenData {
+                lexeme: format!("Unexpected character '{}'", token_data.lexeme),
+                line: token_data.line,
+            })),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -220,7 +230,7 @@ mod test {
     fn it_scans_end_of_file() {
         let source = "";
         let mut scanner = Scanner::new(source);
-        let token = scanner.scan();
+        let token = scanner.next().unwrap();
         assert_eq!(
             token,
             Token::Eof(TokenData {
@@ -234,7 +244,7 @@ mod test {
     fn it_skips_whitespace_and_comments() {
         let source = "    \t  \n // \r\n \t   ";
         let mut scanner = Scanner::new(source);
-        let token = scanner.scan();
+        let token = scanner.next().unwrap();
         assert_eq!(
             token,
             Token::Eof(TokenData {
@@ -248,7 +258,7 @@ mod test {
     fn it_scans_an_identifier() {
         let source = "identifier\nidentifier1234";
         let mut scanner = Scanner::new(source);
-        let token = scanner.scan();
+        let token = scanner.next().unwrap();
         assert_eq!(
             token,
             Token::Identifier(TokenData {
@@ -256,7 +266,7 @@ mod test {
                 lexeme: "identifier".into()
             })
         );
-        let token = scanner.scan();
+        let token = scanner.next().unwrap();
         assert_eq!(
             token,
             Token::Identifier(TokenData {
@@ -270,7 +280,7 @@ mod test {
     fn it_scans_a_number() {
         let source = "12345.6789\n54321";
         let mut scanner = Scanner::new(source);
-        let token = scanner.scan();
+        let token = scanner.next().unwrap();
         assert_eq!(
             token,
             Token::Number(TokenData {
@@ -279,7 +289,7 @@ mod test {
             })
         );
 
-        let token = scanner.scan();
+        let token = scanner.next().unwrap();
         assert_eq!(
             token,
             Token::Number(TokenData {
@@ -360,7 +370,7 @@ mod test {
             }),
         ];
         for expected_token in expected_tokens {
-            let token = scanner.scan();
+            let token = scanner.next().unwrap();
             assert_eq!(token, expected_token);
         }
     }
@@ -389,7 +399,7 @@ mod test {
         ];
 
         for expected_token in expected_tokens {
-            let token = scanner.scan();
+            let token = scanner.next().unwrap();
             assert_eq!(token, expected_token);
         }
     }
@@ -398,7 +408,7 @@ mod test {
     fn it_scans_a_string() {
         let source = "\"hello world\"";
         let mut scanner = Scanner::new(source);
-        let token = scanner.scan();
+        let token = scanner.next().unwrap();
         assert_eq!(
             token,
             Token::String(TokenData {
@@ -412,7 +422,7 @@ mod test {
     fn it_reports_unterminated_string() {
         let source = "\"hello world";
         let mut scanner = Scanner::new(source);
-        let token = scanner.scan();
+        let token = scanner.next().unwrap();
         assert_eq!(
             token,
             Token::Error(TokenData {
