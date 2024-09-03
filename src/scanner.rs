@@ -3,7 +3,7 @@ use std::str::Chars;
 
 use crate::token::{Token, TokenData};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Scanner<'a> {
     line: usize,
     iter: Peekable<Chars<'a>>,

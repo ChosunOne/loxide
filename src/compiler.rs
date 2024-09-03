@@ -1,11 +1,14 @@
 use crate::scanner::Scanner;
+use std::iter::Peekable;
 
 pub struct Compiler<'a> {
-    scanner: Scanner<'a>,
+    scanner: Peekable<Scanner<'a>>,
 }
 
 impl<'a> Compiler<'a> {
     pub fn new(scanner: Scanner<'a>) -> Self {
-        Self { scanner }
+        Self {
+            scanner: scanner.peekable(),
+        }
     }
 }
