@@ -120,11 +120,7 @@ mod test {
         let function = ObjFunction {
             obj: Obj::default(),
             arity: 0,
-            chunk: Chunk {
-                code: vec![],
-                constants: vec![],
-                lines: vec![],
-            },
+            chunk: Chunk::default(),
             upvalue_count: 0,
             name: Some(&function_name),
         };
