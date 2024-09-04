@@ -1,7 +1,8 @@
 use crate::value::Value;
 
+#[derive(Debug, PartialEq)]
 pub struct Chunk<'a> {
-    code: Vec<u8>,
-    lines: Vec<usize>,
-    constants: Vec<Value<'a>>,
+    pub code: Vec<u8>,
+    pub lines: Vec<usize>,
+    pub constants: Vec<Value<'a>>,
 }
