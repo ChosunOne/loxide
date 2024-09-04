@@ -2,11 +2,12 @@ use std::fmt::Display;
 
 use crate::object::Object;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub enum Value<'a> {
     Bool(bool),
     Number(f64),
     Object(Box<Object<'a>>),
+    #[default]
     Nil,
 }
 

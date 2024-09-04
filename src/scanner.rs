@@ -1,11 +1,11 @@
 use std::iter::Peekable;
 use std::str::Chars;
 
-use crate::token::{Token, TokenData};
+use crate::token::{Token, TokenType};
 
 #[derive(Debug, Clone)]
 pub struct Scanner<'a> {
-    line: usize,
+    pub line: usize,
     iter: Peekable<Chars<'a>>,
 }
 
@@ -29,10 +29,11 @@ impl<'a> Scanner<'a> {
         }
 
         let lexeme: String = lexeme_builder.into_iter().collect();
-        Some(Token::Identifier(TokenData {
+        Some(Token {
+            kind: TokenType::Identifier,
             line: self.line,
             lexeme,
-        }))
+        })
     }
 
     fn number(&mut self) -> Option<Token> {
@@ -61,10 +62,11 @@ impl<'a> Scanner<'a> {
         }
 
         let lexeme: String = lexeme_builder.into_iter().collect();
-        Some(Token::Number(TokenData {
+        Some(Token {
+            kind: TokenType::Number,
             line: self.line,
             lexeme,
-        }))
+        })
     }
 
     fn string(&mut self) -> Option<Token> {
@@ -83,20 +85,22 @@ impl<'a> Scanner<'a> {
         }
 
         if self.is_at_end() {
-            return Some(Token::Error(TokenData {
+            return Some(Token {
+                kind: TokenType::Error,
                 lexeme: "Unterminated string.".into(),
                 line: self.line,
-            }));
+            });
         }
 
         // Consume closing quote
         self.iter.next();
 
         let lexeme = lexeme_builder.into_iter().collect();
-        Some(Token::String(TokenData {
+        Some(Token {
+            kind: TokenType::String,
             lexeme,
             line: self.line,
-        }))
+        })
     }
 
     fn is_at_end(&mut self) -> bool {
@@ -143,10 +147,11 @@ impl<'a> Iterator for Scanner<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         self.skip_whitespace();
         if self.is_at_end() {
-            return Some(Token::Eof(TokenData {
+            return Some(Token {
+                kind: TokenType::Eof,
                 lexeme: "".into(),
                 line: self.line,
-            }));
+            });
         };
         let c = self.iter.peek().unwrap();
         if c.is_alphabetic() {
@@ -156,69 +161,66 @@ impl<'a> Iterator for Scanner<'a> {
             return self.number();
         }
 
-        let token_data = TokenData {
+        let mut token = Token {
+            kind: TokenType::Error,
             lexeme: c.to_string(),
             line: self.line,
         };
 
-        match self.iter.next()? {
-            '(' => Some(Token::LeftParen(token_data)),
-            ')' => Some(Token::RightParen(token_data)),
-            '{' => Some(Token::LeftBrace(token_data)),
-            '}' => Some(Token::RightBrace(token_data)),
-            ';' => Some(Token::Semicolon(token_data)),
-            ',' => Some(Token::Comma(token_data)),
-            '.' => Some(Token::Dot(token_data)),
-            '-' => Some(Token::Minus(token_data)),
-            '+' => Some(Token::Plus(token_data)),
-            '/' => Some(Token::Slash(token_data)),
-            '*' => Some(Token::Star(token_data)),
+        token.kind = match self.iter.next()? {
+            '(' => TokenType::LeftParen,
+            ')' => TokenType::RightParen,
+            '{' => TokenType::LeftBrace,
+            '}' => TokenType::RightBrace,
+            ';' => TokenType::Semicolon,
+            ',' => TokenType::Comma,
+            '.' => TokenType::Dot,
+            '-' => TokenType::Minus,
+            '+' => TokenType::Plus,
+            '/' => TokenType::Slash,
+            '*' => TokenType::Star,
             '!' => {
                 if self.iter.next_if_eq(&'=').is_some() {
-                    Some(Token::BangEqual(TokenData {
-                        lexeme: "!=".into(),
-                        line: token_data.line,
-                    }))
+                    token.lexeme = "!=".into();
+                    TokenType::BangEqual
                 } else {
-                    Some(Token::Bang(token_data))
+                    TokenType::Bang
                 }
             }
             '=' => {
                 if self.iter.next_if_eq(&'=').is_some() {
-                    Some(Token::EqualEqual(TokenData {
-                        lexeme: "==".into(),
-                        line: token_data.line,
-                    }))
+                    token.lexeme = "==".into();
+                    TokenType::EqualEqual
                 } else {
-                    Some(Token::Equal(token_data))
+                    TokenType::Equal
                 }
             }
             '<' => {
                 if self.iter.next_if_eq(&'=').is_some() {
-                    Some(Token::LessEqual(TokenData {
-                        lexeme: "<=".into(),
-                        line: token_data.line,
-                    }))
+                    token.lexeme = "<=".into();
+                    TokenType::LessEqual
                 } else {
-                    Some(Token::Less(token_data))
+                    TokenType::Less
                 }
             }
             '>' => {
                 if self.iter.next_if_eq(&'=').is_some() {
-                    Some(Token::GreaterEqual(TokenData {
-                        lexeme: ">=".into(),
-                        line: token_data.line,
-                    }))
+                    token.lexeme = ">=".into();
+                    TokenType::GreaterEqual
                 } else {
-                    Some(Token::Greater(token_data))
+                    TokenType::Greater
                 }
             }
-            '"' => self.string(),
-            _ => Some(Token::Error(TokenData {
-                lexeme: format!("Unexpected character '{}'", token_data.lexeme),
-                line: token_data.line,
-            })),
-        }
+            '"' => {
+                token = self.string()?;
+                token.kind
+            }
+            _ => {
+                token.lexeme = format!("Unexpected character '{}'", token.lexeme);
+                TokenType::Error
+            }
+        };
+        Some(token)
     }
 }
 
@@ -233,10 +235,11 @@ mod test {
         let token = scanner.next().unwrap();
         assert_eq!(
             token,
-            Token::Eof(TokenData {
+            Token {
+                kind: TokenType::Eof,
                 line: 1,
                 lexeme: "".into(),
-            }),
+            },
         );
     }
 
@@ -247,10 +250,11 @@ mod test {
         let token = scanner.next().unwrap();
         assert_eq!(
             token,
-            Token::Eof(TokenData {
+            Token {
+                kind: TokenType::Eof,
                 line: 3,
                 lexeme: "".into(),
-            }),
+            },
         );
     }
 
@@ -261,18 +265,20 @@ mod test {
         let token = scanner.next().unwrap();
         assert_eq!(
             token,
-            Token::Identifier(TokenData {
+            Token {
+                kind: TokenType::Identifier,
                 line: 1,
                 lexeme: "identifier".into()
-            })
+            }
         );
         let token = scanner.next().unwrap();
         assert_eq!(
             token,
-            Token::Identifier(TokenData {
+            Token {
+                kind: TokenType::Identifier,
                 line: 2,
                 lexeme: "identifier1234".into()
-            })
+            }
         );
     }
 
@@ -283,19 +289,21 @@ mod test {
         let token = scanner.next().unwrap();
         assert_eq!(
             token,
-            Token::Number(TokenData {
+            Token {
+                kind: TokenType::Number,
                 line: 1,
                 lexeme: "12345.6789".into()
-            })
+            }
         );
 
         let token = scanner.next().unwrap();
         assert_eq!(
             token,
-            Token::Number(TokenData {
+            Token {
+                kind: TokenType::Number,
                 line: 2,
                 lexeme: "54321".into()
-            })
+            }
         );
     }
 
@@ -304,70 +312,86 @@ mod test {
         let source = "(){};,.-+/*! = < > $";
         let mut scanner = Scanner::new(source);
         let expected_tokens = vec![
-            Token::LeftParen(TokenData {
+            Token {
+                kind: TokenType::LeftParen,
                 lexeme: "(".into(),
                 line: 1,
-            }),
-            Token::RightParen(TokenData {
+            },
+            Token {
+                kind: TokenType::RightParen,
                 lexeme: ")".into(),
                 line: 1,
-            }),
-            Token::LeftBrace(TokenData {
+            },
+            Token {
+                kind: TokenType::LeftBrace,
                 lexeme: "{".into(),
                 line: 1,
-            }),
-            Token::RightBrace(TokenData {
+            },
+            Token {
+                kind: TokenType::RightBrace,
                 lexeme: "}".into(),
                 line: 1,
-            }),
-            Token::Semicolon(TokenData {
+            },
+            Token {
+                kind: TokenType::Semicolon,
                 lexeme: ";".into(),
                 line: 1,
-            }),
-            Token::Comma(TokenData {
+            },
+            Token {
+                kind: TokenType::Comma,
                 lexeme: ",".into(),
                 line: 1,
-            }),
-            Token::Dot(TokenData {
+            },
+            Token {
+                kind: TokenType::Dot,
                 lexeme: ".".into(),
                 line: 1,
-            }),
-            Token::Minus(TokenData {
+            },
+            Token {
+                kind: TokenType::Minus,
                 lexeme: "-".into(),
                 line: 1,
-            }),
-            Token::Plus(TokenData {
+            },
+            Token {
+                kind: TokenType::Plus,
                 lexeme: "+".into(),
                 line: 1,
-            }),
-            Token::Slash(TokenData {
+            },
+            Token {
+                kind: TokenType::Slash,
                 lexeme: "/".into(),
                 line: 1,
-            }),
-            Token::Star(TokenData {
+            },
+            Token {
+                kind: TokenType::Star,
                 lexeme: "*".into(),
                 line: 1,
-            }),
-            Token::Bang(TokenData {
+            },
+            Token {
+                kind: TokenType::Bang,
                 lexeme: "!".into(),
                 line: 1,
-            }),
-            Token::Equal(TokenData {
+            },
+            Token {
+                kind: TokenType::Equal,
                 lexeme: "=".into(),
                 line: 1,
-            }),
-            Token::Less(TokenData {
+            },
+            Token {
+                kind: TokenType::Less,
                 lexeme: "<".into(),
                 line: 1,
-            }),
-            Token::Greater(TokenData {
+            },
+            Token {
+                kind: TokenType::Greater,
                 lexeme: ">".into(),
                 line: 1,
-            }),
-            Token::Error(TokenData {
+            },
+            Token {
+                kind: TokenType::Error,
                 lexeme: "Unexpected character '$'".into(),
                 line: 1,
-            }),
+            },
         ];
         for expected_token in expected_tokens {
             let token = scanner.next().unwrap();
@@ -380,22 +404,26 @@ mod test {
         let source = "== <= >= !=";
         let mut scanner = Scanner::new(source);
         let expected_tokens = vec![
-            Token::EqualEqual(TokenData {
+            Token {
+                kind: TokenType::EqualEqual,
                 lexeme: "==".into(),
                 line: 1,
-            }),
-            Token::LessEqual(TokenData {
+            },
+            Token {
+                kind: TokenType::LessEqual,
                 lexeme: "<=".into(),
                 line: 1,
-            }),
-            Token::GreaterEqual(TokenData {
+            },
+            Token {
+                kind: TokenType::GreaterEqual,
                 lexeme: ">=".into(),
                 line: 1,
-            }),
-            Token::BangEqual(TokenData {
+            },
+            Token {
+                kind: TokenType::BangEqual,
                 lexeme: "!=".into(),
                 line: 1,
-            }),
+            },
         ];
 
         for expected_token in expected_tokens {
@@ -411,10 +439,11 @@ mod test {
         let token = scanner.next().unwrap();
         assert_eq!(
             token,
-            Token::String(TokenData {
+            Token {
+                kind: TokenType::String,
                 lexeme: "hello world".into(),
                 line: 1
-            })
+            }
         );
     }
 
@@ -425,10 +454,11 @@ mod test {
         let token = scanner.next().unwrap();
         assert_eq!(
             token,
-            Token::Error(TokenData {
+            Token {
+                kind: TokenType::Error,
                 lexeme: "Unterminated string.".into(),
                 line: 1
-            })
+            }
         );
     }
 }

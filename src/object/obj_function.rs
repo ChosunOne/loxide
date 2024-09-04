@@ -4,7 +4,7 @@ use crate::{
 };
 use std::fmt::Display;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct ObjFunction<'a> {
     pub obj: Obj<'a>,
     pub arity: usize,
