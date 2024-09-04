@@ -1,12 +1,22 @@
+pub mod obj_bound_method;
+pub mod obj_class;
+pub mod obj_closure;
+pub mod obj_function;
+pub mod obj_instance;
+pub mod obj_native;
+pub mod obj_string;
+pub mod obj_upvalue;
+
 use std::{
     cell::Cell,
-    collections::HashMap,
     fmt::{Debug, Display},
 };
 
-use crate::{chunk::Chunk, value::Value};
-
-type NativeFn = Box<dyn Fn(Vec<Value<'static>>) -> Value<'static>>;
+use crate::object::{
+    obj_bound_method::ObjBoundMethod, obj_class::ObjClass, obj_closure::ObjClosure,
+    obj_function::ObjFunction, obj_instance::ObjInstance, obj_native::ObjNative,
+    obj_string::ObjString, obj_upvalue::ObjUpvalue,
+};
 
 #[derive(Debug, PartialEq)]
 pub enum Object<'a> {
@@ -40,132 +50,11 @@ pub struct Obj<'a> {
     pub next: Cell<Option<&'a Object<'a>>>,
 }
 
-#[derive(Debug, PartialEq)]
-pub struct ObjFunction<'a> {
-    pub obj: Obj<'a>,
-    pub arity: usize,
-    pub upvalue_count: usize,
-    pub chunk: Chunk<'a>,
-    pub name: Option<&'a ObjString<'a>>,
-}
-
-impl<'a> Display for ObjFunction<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.name.is_none() {
-            return write!(f, "<script>");
-        }
-        write!(f, "<fn {}>", self.name.unwrap().chars)
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub struct ObjString<'a> {
-    pub obj: Obj<'a>,
-    pub hash: u32,
-    pub chars: String,
-}
-
-impl<'a> Display for ObjString<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.chars)
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub struct ObjUpvalue<'a> {
-    pub obj: Obj<'a>,
-    pub location: &'a Value<'a>,
-    pub closed: Value<'a>,
-    pub next: Option<&'a ObjUpvalue<'a>>,
-}
-
-impl<'a> Display for ObjUpvalue<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "upvalue")
-    }
-}
-
-pub struct ObjNative<'a> {
-    pub obj: Obj<'a>,
-    pub function: NativeFn,
-}
-
-impl<'a> PartialEq for ObjNative<'a> {
-    fn eq(&self, _other: &Self) -> bool {
-        false
-    }
-}
-
-impl<'a> Debug for ObjNative<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "ObjNative {{ obj: {:?}, function: <native fn>}}",
-            self.obj
-        )
-    }
-}
-
-impl<'a> Display for ObjNative<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<native fn>")
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub struct ObjClosure<'a> {
-    pub obj: Obj<'a>,
-    pub function: &'a ObjFunction<'a>,
-    pub upvalues: Vec<&'a ObjUpvalue<'a>>,
-}
-
-impl<'a> Display for ObjClosure<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.function)
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub struct ObjClass<'a> {
-    pub obj: Obj<'a>,
-    pub name: &'a ObjString<'a>,
-    pub methods: HashMap<String, &'a ObjFunction<'a>>,
-}
-
-impl<'a> Display for ObjClass<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name.chars)
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub struct ObjInstance<'a> {
-    pub obj: Obj<'a>,
-    pub class: &'a ObjClass<'a>,
-}
-
-impl<'a> Display for ObjInstance<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} instance", self.class.name.chars)
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub struct ObjBoundMethod<'a> {
-    pub obj: Obj<'a>,
-    pub receiver: Value<'a>,
-    pub method: &'a ObjClosure<'a>,
-}
-
-impl<'a> Display for ObjBoundMethod<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.method.function)
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::{chunk::Chunk, value::Value};
+    use std::collections::HashMap;
 
     #[test]
     fn i_can_make_string_objects() {
