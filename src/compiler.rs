@@ -83,6 +83,10 @@ impl<'a> Compiler<'a> {
         self.current_function.chunk.write(byte, self.line);
     }
 
+    fn emit_opcode(&mut self, opcode: OpCode) {
+        self.emit_byte(opcode as u8);
+    }
+
     fn emit_bytes(&mut self, byte1: u8, byte2: u8) {
         self.emit_byte(byte1);
         self.emit_byte(byte2);
@@ -95,6 +99,44 @@ impl<'a> Compiler<'a> {
             self.emit_byte(OpCode::Nil as u8);
         }
         self.emit_byte(OpCode::Return as u8);
+    }
+
+    fn emit_jump(&mut self, opcode: OpCode) -> usize {
+        match opcode {
+            OpCode::Jump | OpCode::JumpIfFalse => {}
+            o => panic!("ICE: Tried to emit jump with non jump condition: {o}"),
+        }
+        self.emit_opcode(opcode);
+        self.emit_byte(0xffu8);
+        self.emit_byte(0xffu8);
+        self.current_function.chunk.code.len() - 2
+    }
+
+    fn emit_loop(&mut self, loop_start: usize) {
+        self.emit_opcode(OpCode::Loop);
+
+        let offset = self.current_function.chunk.code.len() - loop_start + 2;
+        if offset > u16::MAX as usize {
+            self.error("Loop body too large.");
+        }
+
+        // High bits
+        self.emit_byte(((offset >> 8) & 0xff) as u8);
+        // Low bits
+        self.emit_byte((offset & 0xff) as u8);
+    }
+
+    fn patch_jump(&mut self, offset: usize) {
+        // -2 to adjust for the bytecode for the jump itself
+        let jump = self.current_function.chunk.code.len() - offset - 2;
+        if jump > u16::MAX as usize {
+            self.error("Too much code to jump over.");
+        }
+
+        // High bits
+        self.current_function.chunk.code[offset] = ((jump >> 8) & 0xff) as u8;
+        // Low bits
+        self.current_function.chunk.code[offset + 1] = (jump & 0xff) as u8;
     }
 
     fn end(mut self) -> &'a mut ObjFunction<'a> {
@@ -207,7 +249,15 @@ impl<'a> Compiler<'a> {
         todo!()
     }
 
+    fn mark_initialized(&mut self) {
+        todo!()
+    }
+
     fn identifier_constant(&mut self, name: &Token) -> usize {
+        todo!()
+    }
+
+    fn parse_variable(&mut self, error_message: &str) -> usize {
         todo!()
     }
 
@@ -312,11 +362,24 @@ impl<'a> Compiler<'a> {
     }
 
     fn fun_declaration(&mut self) {
-        todo!()
+        let global = self.parse_variable("Expect function name.");
+        self.mark_initialized();
+        self.function(FunctionType::Function);
+        self.define_variable(global as u8);
     }
 
     fn var_declaration(&mut self) {
-        todo!()
+        let global = self.parse_variable("Expect variable name.");
+        if self.advance_if_eq(TokenType::Equal) {
+            self.expression();
+        } else {
+            self.emit_byte(OpCode::Nil as u8);
+        }
+        self.consume(
+            TokenType::Semicolon,
+            "Expect ';' after variable declaration.",
+        );
+        self.define_variable(global as u8);
     }
 
     fn named_variable(&mut self, name: Token) {
@@ -324,14 +387,149 @@ impl<'a> Compiler<'a> {
     }
 
     fn statement(&mut self) {
-        todo!()
+        match self.peek_scanner().kind {
+            TokenType::Print => self.print_statement(),
+            TokenType::For => self.for_statement(),
+            TokenType::If => self.if_statement(),
+            TokenType::Return => self.return_statement(),
+            TokenType::While => self.while_statement(),
+            TokenType::LeftBrace => {
+                self.begin_scope();
+                self.block();
+                self.end_scope();
+            }
+            _ => self.expression_statement(),
+        }
+    }
+
+    fn print_statement(&mut self) {
+        if !self.advance_if_eq(TokenType::Print) {
+            panic!("ICE: Failed to find 'print' token for print statement.");
+        }
+        self.expression();
+        self.consume(TokenType::Semicolon, "Expect ';' after value.");
+        self.emit_byte(OpCode::Print as u8);
+    }
+
+    fn for_statement(&mut self) {
+        if !self.advance_if_eq(TokenType::For) {
+            panic!("ICE: Failed to find 'for' token for 'for' statement.");
+        }
+
+        self.begin_scope();
+        self.consume(TokenType::LeftParen, "Expect '(' after 'for'.");
+        match self.peek_scanner().kind {
+            TokenType::Semicolon => self.advance_scanner(),
+            TokenType::Var => {
+                self.advance_scanner();
+                self.var_declaration();
+            }
+            _ => self.expression_statement(),
+        }
+
+        let mut loop_start = self.current_function.chunk.code.len();
+        let mut exit_jump = -1;
+        if !self.advance_if_eq(TokenType::Semicolon) {
+            self.expression();
+            self.consume(TokenType::Semicolon, "Expect ';' after loop condition.");
+            exit_jump = self.emit_jump(OpCode::JumpIfFalse) as isize;
+            self.emit_opcode(OpCode::Pop);
+        }
+
+        if !self.advance_if_eq(TokenType::RightParen) {
+            let body_jump = self.emit_jump(OpCode::Jump);
+            let increment_start = self.current_function.chunk.code.len();
+            self.expression();
+            self.emit_opcode(OpCode::Pop);
+            self.consume(TokenType::RightParen, "Expect ')' after for clauses.");
+            self.emit_loop(loop_start);
+            loop_start = increment_start;
+            self.patch_jump(body_jump);
+        }
+
+        self.statement();
+        self.emit_loop(loop_start);
+        if exit_jump != -1 {
+            self.patch_jump(exit_jump as usize);
+            self.emit_opcode(OpCode::Pop);
+        }
+        self.end_scope();
+    }
+
+    fn if_statement(&mut self) {
+        if !self.advance_if_eq(TokenType::If) {
+            panic!("ICE: Failed to find 'if' token for if statement.");
+        }
+        self.consume(TokenType::LeftParen, "Expect '(' after condition.");
+        let then_jump = self.emit_jump(OpCode::JumpIfFalse);
+        self.emit_opcode(OpCode::Pop);
+        self.statement();
+        let else_jump = self.emit_jump(OpCode::Jump);
+        self.patch_jump(then_jump);
+        self.emit_opcode(OpCode::Pop);
+        if self.advance_if_eq(TokenType::Else) {
+            self.statement();
+        }
+        self.patch_jump(else_jump);
+    }
+
+    fn while_statement(&mut self) {
+        if !self.advance_if_eq(TokenType::While) {
+            panic!("ICE: Failed to find 'while' token for if statement.");
+        }
+        let loop_start = self.current_function.chunk.code.len();
+
+        self.consume(TokenType::LeftParen, "Expect '(' after 'while'.");
+        self.expression();
+        self.consume(TokenType::RightParen, "Expect ')' after condition.");
+
+        let exit_jump = self.emit_jump(OpCode::JumpIfFalse);
+        self.emit_opcode(OpCode::Pop);
+        self.statement();
+        self.emit_loop(loop_start);
+        self.patch_jump(exit_jump);
+        self.emit_opcode(OpCode::Pop);
+    }
+
+    fn expression_statement(&mut self) {
+        self.expression();
+        self.consume(TokenType::Semicolon, "Expect ';' after expression.");
+        self.emit_opcode(OpCode::Pop);
+    }
+
+    fn return_statement(&mut self) {
+        if self.current_function_type == FunctionType::Script {
+            self.error("Can't return from top-level code.");
+        }
+        if self.advance_if_eq(TokenType::Semicolon) {
+            self.emit_return();
+            return;
+        }
+        if self.current_function_type == FunctionType::Initializer {
+            self.error("Can't return a value from an initializer.");
+        }
+        self.expression();
+        self.consume(TokenType::Semicolon, "Expect ';' after return value.");
+        self.emit_opcode(OpCode::Return);
     }
 
     fn method(&mut self) {
         todo!()
     }
 
+    fn function(&mut self, function_type: FunctionType) {
+        todo!()
+    }
+
+    fn block(&mut self) {
+        todo!()
+    }
+
     fn variable(&mut self) {
+        todo!()
+    }
+
+    fn expression(&mut self) {
         todo!()
     }
 }
