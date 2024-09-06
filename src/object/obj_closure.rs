@@ -1,14 +1,14 @@
 use crate::object::{Obj, ObjFunction, ObjUpvalue};
-use std::fmt::Display;
+use std::{fmt::Display, rc::Rc};
 
 #[derive(Debug, PartialEq)]
-pub struct ObjClosure<'a> {
-    pub obj: Obj<'a>,
-    pub function: &'a ObjFunction<'a>,
-    pub upvalues: Vec<&'a ObjUpvalue<'a>>,
+pub struct ObjClosure {
+    pub obj: Obj,
+    pub function: Rc<ObjFunction>,
+    pub upvalues: Vec<Rc<ObjUpvalue>>,
 }
 
-impl<'a> Display for ObjClosure<'a> {
+impl Display for ObjClosure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.function)
     }

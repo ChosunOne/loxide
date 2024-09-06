@@ -1,11 +1,11 @@
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub struct Token {
     pub kind: TokenType,
     pub lexeme: String,
     pub line: usize,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub enum TokenType {
     // Single character tokens
     LeftParen,
@@ -40,6 +40,7 @@ pub enum TokenType {
     For,
     Fun,
     If,
+    #[default]
     Nil,
     Or,
     Print,

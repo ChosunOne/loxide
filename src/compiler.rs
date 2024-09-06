@@ -1,11 +1,12 @@
 use crate::{
     chunk::OpCode,
     error::Error,
-    object::obj_function::ObjFunction,
+    object::{obj_function::ObjFunction, obj_string::ObjString, Obj, Object},
     scanner::Scanner,
     token::{Token, TokenType},
+    value::Value,
 };
-use std::iter::Peekable;
+use std::{array, iter::Peekable, rc::Rc};
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
 pub enum FunctionType {
@@ -23,28 +24,74 @@ pub struct ClassCompiler {
 }
 
 #[derive(Debug)]
-pub struct Compiler<'a> {
-    scanner: Peekable<Scanner<'a>>,
+pub struct Local {
+    pub name: Token,
+    pub depth: isize,
+    pub is_captured: bool,
+}
+
+impl Default for Local {
+    fn default() -> Self {
+        Self {
+            name: Token::default(),
+            depth: -1,
+            is_captured: false,
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct Upvalue {
+    pub index: usize,
+    pub is_local: bool,
+}
+
+#[derive(Debug)]
+pub struct Compiler {
+    enclosing: Option<Rc<Compiler>>,
+    scanner: Peekable<Scanner>,
     had_error: bool,
     panic_mode: bool,
-    current_function: &'a mut ObjFunction<'a>,
+    current_function: ObjFunction,
     current_function_type: FunctionType,
     current_class_compiler: Option<Box<ClassCompiler>>,
     previous_token: Option<Token>,
     line: usize,
     scope_depth: usize,
+    locals: [Local; u8::MAX as usize],
+    local_count: usize,
+    upvalues: [Upvalue; u8::MAX as usize],
+    upvalue_count: usize,
 }
 
-impl<'a> Compiler<'a> {
+impl Compiler {
     pub fn new(
-        source: &'a str,
-        function: &'a mut ObjFunction<'a>,
+        source: String,
+        enclosing: Option<Rc<Compiler>>,
         function_type: FunctionType,
     ) -> Self {
         let scanner = Scanner::new(source).peekable();
+        let upvalues = array::from_fn(|_| Upvalue::default());
+        let mut locals = array::from_fn(|_| Local::default());
+        let local = &mut locals[0];
+        local.depth = 0;
+        if function_type != FunctionType::Function {
+            local.name = Token {
+                kind: TokenType::Identifier,
+                lexeme: "this".into(),
+                line: 0,
+            };
+        } else {
+            local.name = Token {
+                kind: TokenType::Identifier,
+                lexeme: "".into(),
+                line: 0,
+            }
+        }
         Self {
+            enclosing,
             scanner,
-            current_function: function,
+            current_function: ObjFunction::default(),
             current_function_type: function_type,
             current_class_compiler: None,
             line: 1,
@@ -52,10 +99,14 @@ impl<'a> Compiler<'a> {
             had_error: false,
             panic_mode: false,
             previous_token: None,
+            locals,
+            local_count: 1,
+            upvalues,
+            upvalue_count: 0,
         }
     }
 
-    pub fn compile(mut self) -> Result<&'a mut ObjFunction<'a>, Error> {
+    pub fn compile(mut self) -> Result<ObjFunction, Error> {
         loop {
             match self.scanner.peek() {
                 None => break,
@@ -126,6 +177,21 @@ impl<'a> Compiler<'a> {
         self.emit_byte((offset & 0xff) as u8);
     }
 
+    fn emit_constant(&mut self, value: Value) {
+        self.emit_opcode(OpCode::Constant);
+        let constant = self.make_constant(value);
+        self.emit_byte(constant);
+    }
+
+    fn make_constant(&mut self, value: Value) -> u8 {
+        let constant = self.current_function.chunk.add_constant(value);
+        if constant > u8::MAX as usize {
+            self.error("Too many constants in one chunk.");
+            return 0;
+        }
+        constant as u8
+    }
+
     fn patch_jump(&mut self, offset: usize) {
         // -2 to adjust for the bytecode for the jump itself
         let jump = self.current_function.chunk.code.len() - offset - 2;
@@ -139,7 +205,7 @@ impl<'a> Compiler<'a> {
         self.current_function.chunk.code[offset + 1] = (jump & 0xff) as u8;
     }
 
-    fn end(mut self) -> &'a mut ObjFunction<'a> {
+    fn end(mut self) -> ObjFunction {
         self.emit_return();
         self.current_function
     }
@@ -246,23 +312,98 @@ impl<'a> Compiler<'a> {
 
     fn end_scope(&mut self) {
         self.scope_depth -= 1;
-        todo!()
+        while self.local_count > 0
+            && self.locals[self.local_count - 1].depth as usize > self.scope_depth
+        {
+            if self.locals[self.local_count - 1].is_captured {
+                self.emit_opcode(OpCode::CloseUpvalue);
+            } else {
+                self.emit_opcode(OpCode::Pop);
+            }
+            self.local_count -= 1;
+        }
     }
 
     fn mark_initialized(&mut self) {
-        todo!()
+        if self.scope_depth == 0 {
+            return;
+        }
+        self.locals[self.local_count - 1].depth = self.scope_depth as isize;
     }
 
-    fn identifier_constant(&mut self, name: &Token) -> usize {
-        todo!()
+    fn resolve_local(&mut self, name: &Token) -> Option<usize> {
+        for i in (0..self.local_count).rev() {
+            let local = &self.locals[i];
+            if Self::identifiers_equal(name, &local.name) {
+                if local.depth == -1 {
+                    self.error("can't read local variable in its own initializer.");
+                }
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    fn resolve_upvalue(&mut self, name: &Token) -> Option<usize> {
+        let enclosing = Rc::get_mut(self.enclosing.as_mut()?)?;
+        let local = enclosing.resolve_local(name);
+        match local {
+            Some(l) => {
+                enclosing.locals[l].is_captured = true;
+                return self.add_upvalue(l, true).into();
+            }
+            None => {
+                if let Some(v) = enclosing.resolve_upvalue(name) {
+                    return self.add_upvalue(v, false).into();
+                }
+            }
+        }
+
+        None
+    }
+
+    fn identifier_constant(&mut self, name: &Token) -> u8 {
+        self.make_constant(Value::Object(Box::new(Object::String(ObjString {
+            obj: Obj::default(),
+            hash: 0,
+            chars: name.lexeme.clone(),
+        }))))
     }
 
     fn parse_variable(&mut self, error_message: &str) -> usize {
         todo!()
     }
 
-    fn add_local(&mut self, token: Token) {
-        todo!()
+    fn add_upvalue(&mut self, index: usize, is_local: bool) -> usize {
+        let upvalue_count = self.current_function.upvalue_count;
+        for i in 0..upvalue_count {
+            let upvalue = &self.upvalues[i];
+            if upvalue.index == index && upvalue.is_local == is_local {
+                return i;
+            }
+        }
+
+        if upvalue_count == u8::MAX as usize {
+            self.error("Too many closure variables in function.");
+        }
+
+        self.upvalues[upvalue_count].is_local = is_local;
+        self.upvalues[upvalue_count].index = index;
+        self.current_function.upvalue_count += 1;
+        self.current_function.upvalue_count
+    }
+
+    fn add_local(&mut self, name: Token) {
+        if self.local_count == u8::MAX as usize {
+            self.error("Too many local variables in function.");
+            return;
+        }
+
+        let local = &mut self.locals[self.local_count];
+        self.local_count += 1;
+        local.name = name;
+        local.depth = -1;
+        local.is_captured = false;
     }
 
     fn declare_variable(&mut self) {
@@ -322,7 +463,7 @@ impl<'a> Compiler<'a> {
             });
             self.define_variable(0);
 
-            self.named_variable(class_name.clone());
+            self.named_variable(class_name.clone(), false);
             self.emit_byte(OpCode::Inherit as u8);
             self.current_class_compiler
                 .as_deref_mut()
@@ -330,7 +471,7 @@ impl<'a> Compiler<'a> {
                 .has_super_class = true;
         }
 
-        self.named_variable(class_name);
+        self.named_variable(class_name, false);
         self.consume(TokenType::LeftBrace, "Expect '{' before class body.");
 
         loop {
@@ -382,8 +523,36 @@ impl<'a> Compiler<'a> {
         self.define_variable(global as u8);
     }
 
-    fn named_variable(&mut self, name: Token) {
-        todo!()
+    fn named_variable(&mut self, name: Token, can_assign: bool) {
+        let get_op: OpCode;
+        let set_op: OpCode;
+        let mut arg = self.resolve_local(&name);
+        if arg.is_some() {
+            get_op = OpCode::GetLocal;
+            set_op = OpCode::SetLocal;
+        } else if ({
+            arg = self.resolve_upvalue(&name);
+            arg
+        })
+        .is_some()
+        {
+            get_op = OpCode::GetUpvalue;
+            set_op = OpCode::SetUpvalue;
+        } else {
+            arg = Some(self.identifier_constant(&name) as usize);
+            get_op = OpCode::GetGlobal;
+            set_op = OpCode::SetGlobal;
+        }
+
+        if can_assign && self.advance_if_eq(TokenType::Equal) {
+            self.expression();
+            self.emit_opcode(set_op);
+            self.emit_byte(arg.unwrap() as u8);
+            return;
+        }
+
+        self.emit_opcode(get_op);
+        self.emit_byte(arg.unwrap() as u8);
     }
 
     fn statement(&mut self) {
@@ -514,11 +683,27 @@ impl<'a> Compiler<'a> {
     }
 
     fn method(&mut self) {
-        todo!()
+        self.consume(TokenType::Identifier, "Expect method name.");
+        let name = self
+            .previous_token
+            .clone()
+            .expect("ICE: Failed to read previous token for method.");
+        let constant = self.identifier_constant(&name);
+        let function_type = {
+            if name.lexeme == "init" {
+                FunctionType::Initializer
+            } else {
+                FunctionType::Method
+            }
+        };
+
+        self.function(function_type);
+        self.emit_opcode(OpCode::Method);
+        self.emit_byte(constant);
     }
 
     fn function(&mut self, function_type: FunctionType) {
-        todo!()
+        // let compiler = Compiler::new("".into(), Some(Rc::clone(self)), function_type);
     }
 
     fn block(&mut self) {

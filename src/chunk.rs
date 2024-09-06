@@ -3,20 +3,21 @@ use std::fmt::{Display, Error};
 use crate::{object::Object, value::Value};
 
 #[derive(Debug, Default, PartialEq)]
-pub struct Chunk<'a> {
+pub struct Chunk {
     pub code: Vec<u8>,
     lines: Vec<usize>,
-    constants: Vec<Value<'a>>,
+    constants: Vec<Value>,
 }
 
-impl<'a> Chunk<'a> {
+impl Chunk {
     pub fn write(&mut self, byte: u8, line: usize) {
         self.code.push(byte);
         self.lines.push(line);
     }
 
-    pub fn add_constant(&mut self, value: Value<'a>) {
+    pub fn add_constant(&mut self, value: Value) -> usize {
         self.constants.push(value);
+        self.constants.len() - 1
     }
 
     fn simple_instruction(
@@ -85,7 +86,7 @@ impl<'a> Chunk<'a> {
     }
 }
 
-impl<'a> Display for Chunk<'a> {
+impl Display for Chunk {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut offset = 0;
         while offset < self.code.len() {
@@ -308,6 +309,8 @@ impl Display for OpCode {
 
 #[cfg(test)]
 mod test {
+    use std::rc::Rc;
+
     use crate::object::{obj_function::ObjFunction, obj_string::ObjString, Obj};
 
     use super::*;
@@ -424,15 +427,15 @@ mod test {
     #[test]
     fn it_prints_closure_ops() {
         let mut chunk = Chunk::default();
-        let function_name = ObjString {
+        let function_name = Rc::new(ObjString {
             obj: Obj::default(),
             chars: "closure".into(),
             hash: 12345,
-        };
+        });
         let function = ObjFunction {
             obj: Obj::default(),
             arity: 0,
-            name: Some(&function_name),
+            name: Some(function_name),
             chunk: Chunk::default(),
             upvalue_count: 2,
         };

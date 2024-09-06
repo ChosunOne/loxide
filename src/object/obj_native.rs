@@ -1,20 +1,15 @@
 use crate::{object::Obj, value::Value};
 use std::fmt::{Debug, Display};
 
-type NativeFn = Box<dyn Fn(Vec<Value<'static>>) -> Value<'static>>;
+type NativeFn = fn(Vec<Value>) -> Value;
 
-pub struct ObjNative<'a> {
-    pub obj: Obj<'a>,
+#[derive(PartialEq)]
+pub struct ObjNative {
+    pub obj: Obj,
     pub function: NativeFn,
 }
 
-impl<'a> PartialEq for ObjNative<'a> {
-    fn eq(&self, _other: &Self) -> bool {
-        false
-    }
-}
-
-impl<'a> Debug for ObjNative<'a> {
+impl Debug for ObjNative {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -24,7 +19,7 @@ impl<'a> Debug for ObjNative<'a> {
     }
 }
 
-impl<'a> Display for ObjNative<'a> {
+impl Display for ObjNative {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<native fn>")
     }

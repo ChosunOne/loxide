@@ -1,14 +1,14 @@
 use crate::object::{Obj, ObjFunction, ObjString};
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::Display, rc::Rc};
 
 #[derive(Debug, PartialEq)]
-pub struct ObjClass<'a> {
-    pub obj: Obj<'a>,
-    pub name: &'a ObjString<'a>,
-    pub methods: HashMap<String, &'a ObjFunction<'a>>,
+pub struct ObjClass {
+    pub obj: Obj,
+    pub name: Rc<ObjString>,
+    pub methods: HashMap<String, Rc<ObjFunction>>,
 }
 
-impl<'a> Display for ObjClass<'a> {
+impl Display for ObjClass {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.name.chars)
     }

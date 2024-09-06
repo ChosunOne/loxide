@@ -3,16 +3,16 @@ use crate::{
     value::Value,
 };
 
-use std::fmt::Display;
+use std::{fmt::Display, rc::Rc};
 
 #[derive(Debug, PartialEq)]
-pub struct ObjBoundMethod<'a> {
-    pub obj: Obj<'a>,
-    pub receiver: Value<'a>,
-    pub method: &'a ObjClosure<'a>,
+pub struct ObjBoundMethod {
+    pub obj: Obj,
+    pub receiver: Value,
+    pub method: Rc<ObjClosure>,
 }
 
-impl<'a> Display for ObjBoundMethod<'a> {
+impl Display for ObjBoundMethod {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.method.function)
     }

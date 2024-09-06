@@ -8,8 +8,8 @@ pub mod obj_string;
 pub mod obj_upvalue;
 
 use std::{
-    cell::Cell,
     fmt::{Debug, Display},
+    rc::Rc,
 };
 
 use crate::object::{
@@ -19,18 +19,18 @@ use crate::object::{
 };
 
 #[derive(Debug, PartialEq)]
-pub enum Object<'a> {
-    BoundMethod(ObjBoundMethod<'a>),
-    Class(ObjClass<'a>),
-    Function(ObjFunction<'a>),
-    Instance(ObjInstance<'a>),
-    Native(ObjNative<'a>),
-    String(ObjString<'a>),
-    UpValue(ObjUpvalue<'a>),
-    Closure(ObjClosure<'a>),
+pub enum Object {
+    BoundMethod(ObjBoundMethod),
+    Class(ObjClass),
+    Function(ObjFunction),
+    Instance(ObjInstance),
+    Native(ObjNative),
+    String(ObjString),
+    UpValue(ObjUpvalue),
+    Closure(ObjClosure),
 }
 
-impl<'a> Display for Object<'a> {
+impl Display for Object {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::BoundMethod(b) => write!(f, "{}", b),
@@ -46,8 +46,8 @@ impl<'a> Display for Object<'a> {
 }
 
 #[derive(Debug, Default, PartialEq)]
-pub struct Obj<'a> {
-    pub next: Cell<Option<&'a Object<'a>>>,
+pub struct Obj {
+    pub next: Option<Rc<Object>>,
 }
 
 #[cfg(test)]
@@ -58,36 +58,42 @@ mod test {
 
     #[test]
     fn i_can_make_string_objects() {
-        let string1 = Object::String(ObjString {
-            obj: Obj {
-                next: Cell::new(None),
-            },
+        let string1 = Rc::new(Object::String(ObjString {
+            obj: Obj { next: None },
             chars: "String".into(),
             hash: 1234,
-        });
-        let string2 = Object::String(ObjString {
+        }));
+        let string2 = Rc::new(Object::String(ObjString {
             obj: Obj {
-                next: Cell::new(Some(&string1)),
+                next: Some(string1),
             },
             chars: "String2".into(),
             hash: 45321,
-        });
-        let string3 = Object::String(ObjString {
+        }));
+        let mut string3 = Object::String(ObjString {
             obj: Obj {
-                next: Cell::new(Some(&string2)),
+                next: Some(string2),
             },
             chars: "String3".into(),
             hash: 182736,
         });
 
-        if let Object::String(ref s) = string2 {
-            s.obj.next.replace(None);
+        if let Object::String(ref mut s) = &mut string3 {
+            match s.obj.next.as_mut() {
+                None => panic!("Failed to find next object"),
+                Some(st) => match Rc::get_mut(st).unwrap() {
+                    Object::String(string) => {
+                        string.obj.next.take();
+                    }
+                    _ => panic!("Found wrong object"),
+                },
+            }
         };
 
         if let Object::String(ref s) = string3 {
-            match s.obj.next.get() {
+            match &s.obj.next {
                 None => panic!("Failed to find next object"),
-                Some(st) => match st {
+                Some(st) => match &**st {
                     Object::String(string) => {
                         assert_eq!("String2", string.chars);
                     }
@@ -99,58 +105,56 @@ mod test {
 
     #[test]
     fn i_can_make_native_function_objects() {
-        let native_fn_closure = Box::new(|_: Vec<Value>| Value::Nil);
+        let native_fn_closure = |_: Vec<Value>| Value::Nil;
         let native_fn = ObjNative {
-            obj: Obj {
-                next: Cell::new(None),
-            },
+            obj: Obj { next: None },
             function: native_fn_closure,
         };
-        assert!(native_fn.obj.next.get().is_none());
+        assert!(native_fn.obj.next.is_none());
         assert_eq!((native_fn.function)(vec![]), Value::Nil);
     }
 
     #[test]
     fn it_prints_objects_correctly() {
-        let function_name = ObjString {
+        let function_name = Rc::new(ObjString {
             obj: Obj::default(),
             chars: "function_name".into(),
             hash: 1234,
-        };
-        let function = ObjFunction {
+        });
+        let function = Rc::new(ObjFunction {
             obj: Obj::default(),
             arity: 0,
             chunk: Chunk::default(),
             upvalue_count: 0,
-            name: Some(&function_name),
-        };
-        let closure = ObjClosure {
+            name: Some(Rc::clone(&function_name)),
+        });
+        let closure = Rc::new(ObjClosure {
             obj: Obj::default(),
-            function: &function,
+            function: Rc::clone(&function),
             upvalues: vec![],
-        };
-        let bound_method = Object::BoundMethod(ObjBoundMethod {
+        });
+        let bound_method = Rc::new(Object::BoundMethod(ObjBoundMethod {
             obj: Obj::default(),
             receiver: Value::Nil,
-            method: &closure,
-        });
-        let class_name = ObjString {
+            method: Rc::clone(&closure),
+        }));
+        let class_name = Rc::new(ObjString {
             obj: Obj::default(),
             chars: "ClassName".into(),
             hash: 1234,
-        };
+        });
         let class = Object::Class(ObjClass {
             obj: Obj::default(),
-            name: &class_name,
+            name: class_name,
             methods: HashMap::new(),
         });
-        let native_fn = Object::Native(ObjNative {
+        let native_fn = Rc::new(Object::Native(ObjNative {
             obj: Obj::default(),
-            function: Box::new(|_| Value::Nil),
-        });
+            function: |_| Value::Nil,
+        }));
         let upvalue = Object::UpValue(ObjUpvalue {
             obj: Obj::default(),
-            location: &Value::Nil,
+            location: Rc::new(Value::Nil),
             closed: Value::Nil,
             next: None,
         });

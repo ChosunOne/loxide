@@ -3,15 +3,15 @@ use std::fmt::Display;
 use crate::object::Object;
 
 #[derive(Debug, Default, PartialEq)]
-pub enum Value<'a> {
+pub enum Value {
     Bool(bool),
     Number(f64),
-    Object(Box<Object<'a>>),
+    Object(Box<Object>),
     #[default]
     Nil,
 }
 
-impl<'a> Display for Value<'a> {
+impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Bool(b) => write!(f, "{b}"),

@@ -1,31 +1,46 @@
-use std::iter::Peekable;
-use std::str::Chars;
-
 use crate::token::{Token, TokenType};
 
 #[derive(Debug, Clone)]
-pub struct Scanner<'a> {
+pub struct Scanner {
     pub line: usize,
-    iter: Peekable<Chars<'a>>,
+    source: String,
+    current_index: usize,
 }
 
-impl<'a> Scanner<'a> {
-    pub fn new(source: &'a str) -> Self {
+impl Scanner {
+    pub fn new(source: String) -> Self {
         Self {
             line: 1,
-            iter: source.chars().peekable(),
+            source,
+            current_index: 0,
         }
+    }
+
+    fn iter_peek(&mut self) -> Option<char> {
+        self.source[self.current_index..].chars().next()
+    }
+
+    fn iter_next(&mut self) -> Option<char> {
+        self.current_index += 1;
+        self.source[self.current_index - 1..].chars().next()
+    }
+
+    fn next_if_eq(&mut self, c: char) -> Option<char> {
+        if self.iter_peek()? == c {
+            return self.iter_next();
+        }
+        None
     }
 
     fn identifier(&mut self) -> Option<Token> {
         let mut lexeme_builder = vec![];
 
-        while let Some(&c) = self.iter.peek() {
+        while let Some(c) = self.iter_peek() {
             if !c.is_alphanumeric() {
                 break;
             }
             lexeme_builder.push(c);
-            self.iter.next();
+            self.iter_next();
         }
 
         let lexeme: String = lexeme_builder.into_iter().collect();
@@ -39,25 +54,25 @@ impl<'a> Scanner<'a> {
     fn number(&mut self) -> Option<Token> {
         let mut lexeme_builder = vec![];
 
-        while let Some(&c) = self.iter.peek() {
+        while let Some(c) = self.iter_peek() {
             if !c.is_ascii_digit() {
                 break;
             }
             lexeme_builder.push(c);
-            self.iter.next();
+            self.iter_next();
         }
 
         let peek_next = self.peek_next().take_if(|x| x.is_ascii_digit());
-        let next = self.iter.peek();
-        if next == Some(&'.') && peek_next.is_some() {
-            lexeme_builder.push(*next?);
-            self.iter.next(); // Consume the '.'
-            while let Some(&c) = self.iter.peek() {
+        let next = self.iter_peek();
+        if next == Some('.') && peek_next.is_some() {
+            lexeme_builder.push(next?);
+            self.iter_next(); // Consume the '.'
+            while let Some(c) = self.iter_peek() {
                 if !c.is_ascii_digit() {
                     break;
                 }
                 lexeme_builder.push(c);
-                self.iter.next();
+                self.iter_next();
             }
         }
 
@@ -71,7 +86,7 @@ impl<'a> Scanner<'a> {
 
     fn string(&mut self) -> Option<Token> {
         let mut lexeme_builder = vec![];
-        while let Some(&c) = self.iter.peek() {
+        while let Some(c) = self.iter_peek() {
             if c == '"' {
                 break;
             }
@@ -81,7 +96,7 @@ impl<'a> Scanner<'a> {
             }
 
             lexeme_builder.push(c);
-            self.iter.next();
+            self.iter_next();
         }
 
         if self.is_at_end() {
@@ -93,7 +108,7 @@ impl<'a> Scanner<'a> {
         }
 
         // Consume closing quote
-        self.iter.next();
+        self.iter_next();
 
         let lexeme = lexeme_builder.into_iter().collect();
         Some(Token {
@@ -104,12 +119,12 @@ impl<'a> Scanner<'a> {
     }
 
     fn is_at_end(&mut self) -> bool {
-        self.iter.peek().is_none()
+        self.iter_peek().is_none()
     }
 
     fn peek_next(&mut self) -> Option<char> {
-        self.iter.peek()?;
-        let mut next_iter = self.iter.clone();
+        self.iter_peek()?;
+        let mut next_iter = self.source[self.current_index..].chars().peekable();
         next_iter.next();
         let next_c = next_iter.peek()?;
         Some(*next_c)
@@ -117,19 +132,19 @@ impl<'a> Scanner<'a> {
 
     fn skip_whitespace(&mut self) {
         loop {
-            match self.iter.peek() {
+            match self.iter_peek() {
                 None => return,
                 Some(' ' | '\t' | '\r') => {
-                    self.iter.next();
+                    self.iter_next();
                 }
                 Some('\n') => {
                     self.line += 1;
-                    self.iter.next();
+                    self.iter_next();
                 }
                 Some('/') => {
                     if self.peek_next() == Some('/') {
-                        while self.iter.peek() != Some(&'\n') && !self.is_at_end() {
-                            self.iter.next();
+                        while self.iter_peek() != Some('\n') && !self.is_at_end() {
+                            self.iter_next();
                         }
                     } else {
                         return;
@@ -141,7 +156,7 @@ impl<'a> Scanner<'a> {
     }
 }
 
-impl<'a> Iterator for Scanner<'a> {
+impl Iterator for Scanner {
     type Item = Token;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -153,7 +168,7 @@ impl<'a> Iterator for Scanner<'a> {
                 line: self.line,
             });
         };
-        let c = self.iter.peek().unwrap();
+        let c = self.iter_peek().unwrap();
         if c.is_alphabetic() {
             return self.identifier();
         }
@@ -167,7 +182,7 @@ impl<'a> Iterator for Scanner<'a> {
             line: self.line,
         };
 
-        token.kind = match self.iter.next()? {
+        token.kind = match self.iter_next()? {
             '(' => TokenType::LeftParen,
             ')' => TokenType::RightParen,
             '{' => TokenType::LeftBrace,
@@ -180,7 +195,7 @@ impl<'a> Iterator for Scanner<'a> {
             '/' => TokenType::Slash,
             '*' => TokenType::Star,
             '!' => {
-                if self.iter.next_if_eq(&'=').is_some() {
+                if self.next_if_eq('=').is_some() {
                     token.lexeme = "!=".into();
                     TokenType::BangEqual
                 } else {
@@ -188,7 +203,7 @@ impl<'a> Iterator for Scanner<'a> {
                 }
             }
             '=' => {
-                if self.iter.next_if_eq(&'=').is_some() {
+                if self.next_if_eq('=').is_some() {
                     token.lexeme = "==".into();
                     TokenType::EqualEqual
                 } else {
@@ -196,7 +211,7 @@ impl<'a> Iterator for Scanner<'a> {
                 }
             }
             '<' => {
-                if self.iter.next_if_eq(&'=').is_some() {
+                if self.next_if_eq('=').is_some() {
                     token.lexeme = "<=".into();
                     TokenType::LessEqual
                 } else {
@@ -204,7 +219,7 @@ impl<'a> Iterator for Scanner<'a> {
                 }
             }
             '>' => {
-                if self.iter.next_if_eq(&'=').is_some() {
+                if self.next_if_eq('=').is_some() {
                     token.lexeme = ">=".into();
                     TokenType::GreaterEqual
                 } else {
@@ -231,7 +246,7 @@ mod test {
     #[test]
     fn it_scans_end_of_file() {
         let source = "";
-        let mut scanner = Scanner::new(source);
+        let mut scanner = Scanner::new(source.into());
         let token = scanner.next().unwrap();
         assert_eq!(
             token,
@@ -246,7 +261,7 @@ mod test {
     #[test]
     fn it_skips_whitespace_and_comments() {
         let source = "    \t  \n // \r\n \t   ";
-        let mut scanner = Scanner::new(source);
+        let mut scanner = Scanner::new(source.into());
         let token = scanner.next().unwrap();
         assert_eq!(
             token,
@@ -261,7 +276,7 @@ mod test {
     #[test]
     fn it_scans_an_identifier() {
         let source = "identifier\nidentifier1234";
-        let mut scanner = Scanner::new(source);
+        let mut scanner = Scanner::new(source.into());
         let token = scanner.next().unwrap();
         assert_eq!(
             token,
@@ -285,7 +300,7 @@ mod test {
     #[test]
     fn it_scans_a_number() {
         let source = "12345.6789\n54321";
-        let mut scanner = Scanner::new(source);
+        let mut scanner = Scanner::new(source.into());
         let token = scanner.next().unwrap();
         assert_eq!(
             token,
@@ -310,7 +325,7 @@ mod test {
     #[test]
     fn it_scans_single_characters() {
         let source = "(){};,.-+/*! = < > $";
-        let mut scanner = Scanner::new(source);
+        let mut scanner = Scanner::new(source.into());
         let expected_tokens = vec![
             Token {
                 kind: TokenType::LeftParen,
@@ -402,7 +417,7 @@ mod test {
     #[test]
     fn it_scans_double_tokens() {
         let source = "== <= >= !=";
-        let mut scanner = Scanner::new(source);
+        let mut scanner = Scanner::new(source.into());
         let expected_tokens = vec![
             Token {
                 kind: TokenType::EqualEqual,
@@ -435,7 +450,7 @@ mod test {
     #[test]
     fn it_scans_a_string() {
         let source = "\"hello world\"";
-        let mut scanner = Scanner::new(source);
+        let mut scanner = Scanner::new(source.into());
         let token = scanner.next().unwrap();
         assert_eq!(
             token,
@@ -450,7 +465,7 @@ mod test {
     #[test]
     fn it_reports_unterminated_string() {
         let source = "\"hello world";
-        let mut scanner = Scanner::new(source);
+        let mut scanner = Scanner::new(source.into());
         let token = scanner.next().unwrap();
         assert_eq!(
             token,
