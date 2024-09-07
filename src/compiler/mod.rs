@@ -1,108 +1,41 @@
+pub mod context;
+pub mod local;
+pub mod upvalue;
+
+use context::Class;
+
 use crate::{
-    chunk::OpCode,
+    chunk::{Chunk, OpCode},
+    compiler::context::{Context, FunctionType},
     error::Error,
     object::{obj_function::ObjFunction, obj_string::ObjString, Obj, Object},
     scanner::Scanner,
     token::{Token, TokenType},
     value::Value,
 };
-use std::{array, iter::Peekable, rc::Rc};
-
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
-pub enum FunctionType {
-    Function,
-    Initializer,
-    Method,
-    #[default]
-    Script,
-}
-
-#[derive(Debug)]
-pub struct ClassCompiler {
-    pub enclosing: Option<Box<ClassCompiler>>,
-    pub has_super_class: bool,
-}
-
-#[derive(Debug)]
-pub struct Local {
-    pub name: Token,
-    pub depth: isize,
-    pub is_captured: bool,
-}
-
-impl Default for Local {
-    fn default() -> Self {
-        Self {
-            name: Token::default(),
-            depth: -1,
-            is_captured: false,
-        }
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct Upvalue {
-    pub index: usize,
-    pub is_local: bool,
-}
+use std::{iter::Peekable, rc::Rc};
 
 #[derive(Debug)]
 pub struct Compiler {
-    enclosing: Option<Rc<Compiler>>,
     scanner: Peekable<Scanner>,
     had_error: bool,
     panic_mode: bool,
-    current_function: ObjFunction,
-    current_function_type: FunctionType,
-    current_class_compiler: Option<Box<ClassCompiler>>,
     previous_token: Option<Token>,
     line: usize,
-    scope_depth: usize,
-    locals: [Local; u8::MAX as usize],
-    local_count: usize,
-    upvalues: [Upvalue; u8::MAX as usize],
-    upvalue_count: usize,
+    context_stack: Vec<Context>,
 }
 
 impl Compiler {
-    pub fn new(
-        source: String,
-        enclosing: Option<Rc<Compiler>>,
-        function_type: FunctionType,
-    ) -> Self {
+    pub fn new(source: String) -> Self {
         let scanner = Scanner::new(source).peekable();
-        let upvalues = array::from_fn(|_| Upvalue::default());
-        let mut locals = array::from_fn(|_| Local::default());
-        let local = &mut locals[0];
-        local.depth = 0;
-        if function_type != FunctionType::Function {
-            local.name = Token {
-                kind: TokenType::Identifier,
-                lexeme: "this".into(),
-                line: 0,
-            };
-        } else {
-            local.name = Token {
-                kind: TokenType::Identifier,
-                lexeme: "".into(),
-                line: 0,
-            }
-        }
+        let context_stack = vec![Context::new(FunctionType::Script)];
         Self {
-            enclosing,
             scanner,
-            current_function: ObjFunction::default(),
-            current_function_type: function_type,
-            current_class_compiler: None,
             line: 1,
-            scope_depth: 0,
             had_error: false,
             panic_mode: false,
             previous_token: None,
-            locals,
-            local_count: 1,
-            upvalues,
-            upvalue_count: 0,
+            context_stack,
         }
     }
 
@@ -123,7 +56,22 @@ impl Compiler {
             return Err(Error::Compile);
         }
 
-        Ok(self.end())
+        let context = self.pop_context();
+        Ok(context.function)
+    }
+
+    fn current_context(&mut self) -> &mut Context {
+        self.context_stack
+            .last_mut()
+            .expect("ICE: Failed to get current context")
+    }
+
+    fn current_chunk(&mut self) -> &mut Chunk {
+        &mut self.current_context().function.chunk
+    }
+
+    fn current_function_type(&mut self) -> FunctionType {
+        self.current_context().function_type
     }
 
     fn identifiers_equal(a: &Token, b: &Token) -> bool {
@@ -131,7 +79,8 @@ impl Compiler {
     }
 
     fn emit_byte(&mut self, byte: u8) {
-        self.current_function.chunk.write(byte, self.line);
+        let line = self.line;
+        self.current_chunk().write(byte, line);
     }
 
     fn emit_opcode(&mut self, opcode: OpCode) {
@@ -144,7 +93,7 @@ impl Compiler {
     }
 
     fn emit_return(&mut self) {
-        if self.current_function_type == FunctionType::Initializer {
+        if self.current_function_type() == FunctionType::Initializer {
             self.emit_bytes(OpCode::GetLocal as u8, 0);
         } else {
             self.emit_byte(OpCode::Nil as u8);
@@ -160,13 +109,13 @@ impl Compiler {
         self.emit_opcode(opcode);
         self.emit_byte(0xffu8);
         self.emit_byte(0xffu8);
-        self.current_function.chunk.code.len() - 2
+        self.current_chunk().code.len() - 2
     }
 
     fn emit_loop(&mut self, loop_start: usize) {
         self.emit_opcode(OpCode::Loop);
 
-        let offset = self.current_function.chunk.code.len() - loop_start + 2;
+        let offset = self.current_chunk().code.len() - loop_start + 2;
         if offset > u16::MAX as usize {
             self.error("Loop body too large.");
         }
@@ -184,7 +133,7 @@ impl Compiler {
     }
 
     fn make_constant(&mut self, value: Value) -> u8 {
-        let constant = self.current_function.chunk.add_constant(value);
+        let constant = self.current_chunk().add_constant(value);
         if constant > u8::MAX as usize {
             self.error("Too many constants in one chunk.");
             return 0;
@@ -194,20 +143,26 @@ impl Compiler {
 
     fn patch_jump(&mut self, offset: usize) {
         // -2 to adjust for the bytecode for the jump itself
-        let jump = self.current_function.chunk.code.len() - offset - 2;
+        let jump = self.current_chunk().code.len() - offset - 2;
         if jump > u16::MAX as usize {
             self.error("Too much code to jump over.");
         }
 
         // High bits
-        self.current_function.chunk.code[offset] = ((jump >> 8) & 0xff) as u8;
+        self.current_chunk().code[offset] = ((jump >> 8) & 0xff) as u8;
         // Low bits
-        self.current_function.chunk.code[offset + 1] = (jump & 0xff) as u8;
+        self.current_chunk().code[offset + 1] = (jump & 0xff) as u8;
     }
 
-    fn end(mut self) -> ObjFunction {
-        self.emit_return();
-        self.current_function
+    fn pop_context(&mut self) -> Context {
+        self.context_stack
+            .pop()
+            .expect("ICE: Failed to pop context.")
+    }
+
+    fn peek_context(&mut self, index: usize) -> &mut Context {
+        let index = self.context_stack.len() - index - 1;
+        &mut self.context_stack[index]
     }
 
     fn synchronize(&mut self) {
@@ -307,33 +262,37 @@ impl Compiler {
     }
 
     fn begin_scope(&mut self) {
-        self.scope_depth += 1;
+        let context = self.current_context();
+        context.scope_depth += 1;
     }
 
     fn end_scope(&mut self) {
-        self.scope_depth -= 1;
-        while self.local_count > 0
-            && self.locals[self.local_count - 1].depth as usize > self.scope_depth
+        let line = self.line;
+        let context = self.current_context();
+        while context.local_count > 0
+            && context.locals[context.local_count - 1].depth as usize > context.scope_depth
         {
-            if self.locals[self.local_count - 1].is_captured {
-                self.emit_opcode(OpCode::CloseUpvalue);
+            if context.locals[context.local_count - 1].is_captured {
+                context.write_opcode(OpCode::CloseUpvalue, line);
             } else {
-                self.emit_opcode(OpCode::Pop);
+                context.write_opcode(OpCode::Pop, line);
             }
-            self.local_count -= 1;
+            context.local_count -= 1;
         }
     }
 
     fn mark_initialized(&mut self) {
-        if self.scope_depth == 0 {
+        let context = self.current_context();
+        if context.scope_depth == 0 {
             return;
         }
-        self.locals[self.local_count - 1].depth = self.scope_depth as isize;
+        context.locals[context.local_count - 1].depth = context.scope_depth as isize;
     }
 
-    fn resolve_local(&mut self, name: &Token) -> Option<usize> {
-        for i in (0..self.local_count).rev() {
-            let local = &self.locals[i];
+    fn resolve_local(&mut self, name: &Token, index: usize) -> Option<usize> {
+        let context = self.peek_context(index);
+        for i in (0..context.local_count).rev() {
+            let local = &context.locals[i];
             if Self::identifiers_equal(name, &local.name) {
                 if local.depth == -1 {
                     self.error("can't read local variable in its own initializer.");
@@ -344,16 +303,16 @@ impl Compiler {
         None
     }
 
-    fn resolve_upvalue(&mut self, name: &Token) -> Option<usize> {
-        let enclosing = Rc::get_mut(self.enclosing.as_mut()?)?;
-        let local = enclosing.resolve_local(name);
+    fn resolve_upvalue(&mut self, name: &Token, index: usize) -> Option<usize> {
+        let local = self.resolve_local(name, index);
+        let enclosing_context = self.peek_context(index);
         match local {
             Some(l) => {
-                enclosing.locals[l].is_captured = true;
+                enclosing_context.locals[l].is_captured = true;
                 return self.add_upvalue(l, true).into();
             }
             None => {
-                if let Some(v) = enclosing.resolve_upvalue(name) {
+                if let Some(v) = self.resolve_upvalue(name, index + 1) {
                     return self.add_upvalue(v, false).into();
                 }
             }
@@ -375,11 +334,15 @@ impl Compiler {
     }
 
     fn add_upvalue(&mut self, index: usize, is_local: bool) -> usize {
-        let upvalue_count = self.current_function.upvalue_count;
-        for i in 0..upvalue_count {
-            let upvalue = &self.upvalues[i];
-            if upvalue.index == index && upvalue.is_local == is_local {
-                return i;
+        let upvalue_count;
+        {
+            let context = self.current_context();
+            upvalue_count = context.upvalue_count;
+            for i in 0..upvalue_count {
+                let upvalue = &context.upvalues[i];
+                if upvalue.index == index && upvalue.is_local == is_local {
+                    return i;
+                }
             }
         }
 
@@ -387,20 +350,23 @@ impl Compiler {
             self.error("Too many closure variables in function.");
         }
 
-        self.upvalues[upvalue_count].is_local = is_local;
-        self.upvalues[upvalue_count].index = index;
-        self.current_function.upvalue_count += 1;
-        self.current_function.upvalue_count
+        let context = self.current_context();
+
+        context.upvalues[upvalue_count].is_local = is_local;
+        context.upvalues[upvalue_count].index = index;
+        context.function.upvalue_count += 1;
+        context.function.upvalue_count
     }
 
     fn add_local(&mut self, name: Token) {
-        if self.local_count == u8::MAX as usize {
+        let context = self.current_context();
+        if context.local_count == u8::MAX as usize {
             self.error("Too many local variables in function.");
             return;
         }
 
-        let local = &mut self.locals[self.local_count];
-        self.local_count += 1;
+        let local = &mut context.locals[context.local_count];
+        context.local_count += 1;
         local.name = name;
         local.depth = -1;
         local.is_captured = false;
@@ -436,11 +402,10 @@ impl Compiler {
         self.emit_bytes(OpCode::Class as u8, name_constant as u8);
         self.define_variable(name_constant as u8);
 
-        let class_compiler = ClassCompiler {
+        let class = Class {
             has_super_class: false,
-            enclosing: self.current_class_compiler.take(),
         };
-        self.current_class_compiler = Some(Box::new(class_compiler));
+        self.current_context().class_stack.push(class);
 
         if self.advance_if_eq(TokenType::Less) {
             self.consume(TokenType::Identifier, "Expect superclass name.");
@@ -465,10 +430,7 @@ impl Compiler {
 
             self.named_variable(class_name.clone(), false);
             self.emit_byte(OpCode::Inherit as u8);
-            self.current_class_compiler
-                .as_deref_mut()
-                .expect("ICE: Failed to get current class compiler.")
-                .has_super_class = true;
+            self.current_context().peek_class(0).has_super_class = true;
         }
 
         self.named_variable(class_name, false);
@@ -485,21 +447,11 @@ impl Compiler {
 
         self.consume(TokenType::RightBrace, "Expect '}' after class body.");
         self.emit_byte(OpCode::Pop as u8);
-        if self
-            .current_class_compiler
-            .as_ref()
-            .expect("ICE: Failed to get current class compiler.")
-            .has_super_class
-        {
+        if self.current_context().peek_class(0).has_super_class {
             self.end_scope();
         }
 
-        let mut class_compiler = self
-            .current_class_compiler
-            .take()
-            .expect("ICE: Failed to get current class compiler.");
-
-        self.current_class_compiler = class_compiler.enclosing.take();
+        self.current_context().pop_class();
     }
 
     fn fun_declaration(&mut self) {
@@ -526,12 +478,12 @@ impl Compiler {
     fn named_variable(&mut self, name: Token, can_assign: bool) {
         let get_op: OpCode;
         let set_op: OpCode;
-        let mut arg = self.resolve_local(&name);
+        let mut arg = self.resolve_local(&name, 0);
         if arg.is_some() {
             get_op = OpCode::GetLocal;
             set_op = OpCode::SetLocal;
         } else if ({
-            arg = self.resolve_upvalue(&name);
+            arg = self.resolve_upvalue(&name, 0);
             arg
         })
         .is_some()
@@ -596,7 +548,7 @@ impl Compiler {
             _ => self.expression_statement(),
         }
 
-        let mut loop_start = self.current_function.chunk.code.len();
+        let mut loop_start = self.current_chunk().code.len();
         let mut exit_jump = -1;
         if !self.advance_if_eq(TokenType::Semicolon) {
             self.expression();
@@ -607,7 +559,7 @@ impl Compiler {
 
         if !self.advance_if_eq(TokenType::RightParen) {
             let body_jump = self.emit_jump(OpCode::Jump);
-            let increment_start = self.current_function.chunk.code.len();
+            let increment_start = self.current_chunk().code.len();
             self.expression();
             self.emit_opcode(OpCode::Pop);
             self.consume(TokenType::RightParen, "Expect ')' after for clauses.");
@@ -646,7 +598,7 @@ impl Compiler {
         if !self.advance_if_eq(TokenType::While) {
             panic!("ICE: Failed to find 'while' token for if statement.");
         }
-        let loop_start = self.current_function.chunk.code.len();
+        let loop_start = self.current_chunk().code.len();
 
         self.consume(TokenType::LeftParen, "Expect '(' after 'while'.");
         self.expression();
@@ -667,14 +619,14 @@ impl Compiler {
     }
 
     fn return_statement(&mut self) {
-        if self.current_function_type == FunctionType::Script {
+        if self.current_function_type() == FunctionType::Script {
             self.error("Can't return from top-level code.");
         }
         if self.advance_if_eq(TokenType::Semicolon) {
             self.emit_return();
             return;
         }
-        if self.current_function_type == FunctionType::Initializer {
+        if self.current_function_type() == FunctionType::Initializer {
             self.error("Can't return a value from an initializer.");
         }
         self.expression();

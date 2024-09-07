@@ -7,15 +7,18 @@ pub mod obj_native;
 pub mod obj_string;
 pub mod obj_upvalue;
 
+pub use obj_bound_method::ObjBoundMethod;
+pub use obj_class::ObjClass;
+pub use obj_closure::ObjClosure;
+pub use obj_function::ObjFunction;
+pub use obj_instance::ObjInstance;
+pub use obj_native::ObjNative;
+pub use obj_string::ObjString;
+pub use obj_upvalue::ObjUpvalue;
+
 use std::{
     fmt::{Debug, Display},
     rc::Rc,
-};
-
-use crate::object::{
-    obj_bound_method::ObjBoundMethod, obj_class::ObjClass, obj_closure::ObjClosure,
-    obj_function::ObjFunction, obj_instance::ObjInstance, obj_native::ObjNative,
-    obj_string::ObjString, obj_upvalue::ObjUpvalue,
 };
 
 #[derive(Debug, PartialEq)]
