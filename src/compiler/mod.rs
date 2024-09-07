@@ -13,7 +13,7 @@ use crate::{
     token::{Token, TokenType},
     value::Value,
 };
-use std::{iter::Peekable, rc::Rc};
+use std::iter::Peekable;
 
 #[derive(Debug)]
 pub struct Compiler {
@@ -72,6 +72,10 @@ impl Compiler {
 
     fn current_function_type(&mut self) -> FunctionType {
         self.current_context().function_type
+    }
+
+    fn current_function(&mut self) -> &mut ObjFunction {
+        &mut self.current_context().function
     }
 
     fn identifiers_equal(a: &Token, b: &Token) -> bool {
@@ -329,7 +333,7 @@ impl Compiler {
         }))))
     }
 
-    fn parse_variable(&mut self, error_message: &str) -> usize {
+    fn parse_variable(&mut self, error_message: &str) -> u8 {
         todo!()
     }
 
@@ -399,8 +403,8 @@ impl Compiler {
         let name_constant = self.identifier_constant(&class_name);
         self.declare_variable();
 
-        self.emit_bytes(OpCode::Class as u8, name_constant as u8);
-        self.define_variable(name_constant as u8);
+        self.emit_bytes(OpCode::Class as u8, name_constant);
+        self.define_variable(name_constant);
 
         let class = Class {
             has_super_class: false,
@@ -409,7 +413,7 @@ impl Compiler {
 
         if self.advance_if_eq(TokenType::Less) {
             self.consume(TokenType::Identifier, "Expect superclass name.");
-            self.variable();
+            self.variable(false);
             if Compiler::identifiers_equal(
                 &class_name,
                 &self
@@ -655,15 +659,52 @@ impl Compiler {
     }
 
     fn function(&mut self, function_type: FunctionType) {
-        // let compiler = Compiler::new("".into(), Some(Rc::clone(self)), function_type);
+        let context = Context::new(function_type);
+        self.context_stack.push(context);
+        self.begin_scope();
+
+        self.consume(TokenType::LeftParen, "Expect '(' after function name.");
+        if self.peek_scanner().kind != TokenType::RightParen {
+            loop {
+                self.current_function().arity += 1;
+                if self.current_function().arity > 255 {
+                    self.error_at_current("Can't have more than 255 parameters.");
+                }
+                let constant = self.parse_variable("Expect parameter name.");
+                self.define_variable(constant);
+                if !self.advance_if_eq(TokenType::Comma) {
+                    break;
+                }
+            }
+        }
+
+        self.consume(TokenType::RightParen, "Expect ')' after parameters.");
+        self.consume(TokenType::LeftBrace, "Expect '{' before function body.");
+
+        self.block();
+        self.emit_return();
+        let context = self.pop_context();
+        let constant = self.make_constant(Value::new_function(context.function));
+        self.emit_opcode(OpCode::Closure);
+        self.emit_byte(constant);
     }
 
     fn block(&mut self) {
-        todo!()
+        while self.peek_scanner().kind != TokenType::RightBrace
+            && self.peek_scanner().kind != TokenType::Eof
+        {
+            self.declaration();
+        }
+        self.consume(TokenType::RightBrace, "Expect '}' after block.");
     }
 
-    fn variable(&mut self) {
-        todo!()
+    fn variable(&mut self, can_assign: bool) {
+        self.named_variable(
+            self.previous_token
+                .clone()
+                .expect("ICE: Failed to read previous token."),
+            can_assign,
+        );
     }
 
     fn expression(&mut self) {
