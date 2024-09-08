@@ -14,37 +14,75 @@ pub enum Value {
     Nil,
 }
 
-impl Value {
-    pub fn new_function(function: ObjFunction) -> Self {
-        Self::Object(Box::new(Object::Function(function)))
+impl From<bool> for Value {
+    fn from(value: bool) -> Self {
+        Self::Bool(value)
     }
+}
 
-    pub fn new_string(string: ObjString) -> Self {
-        Self::Object(Box::new(Object::String(string)))
+impl From<f64> for Value {
+    fn from(value: f64) -> Self {
+        Self::Number(value)
     }
+}
 
-    pub fn new_class(class: ObjClass) -> Self {
-        Self::Object(Box::new(Object::Class(class)))
+impl From<&str> for Value {
+    fn from(value: &str) -> Self {
+        Self::Object(Box::new(Object::String(value.into())))
     }
+}
 
-    pub fn new_bound_method(bound_method: ObjBoundMethod) -> Self {
-        Self::Object(Box::new(Object::BoundMethod(bound_method)))
+impl From<String> for Value {
+    fn from(value: String) -> Self {
+        Self::Object(Box::new(Object::String(value.into())))
     }
+}
 
-    pub fn new_instance(instance: ObjInstance) -> Self {
-        Self::Object(Box::new(Object::Instance(instance)))
+impl From<ObjFunction> for Value {
+    fn from(value: ObjFunction) -> Self {
+        Self::Object(Box::new(Object::Function(value)))
     }
+}
 
-    pub fn new_native(native: ObjNative) -> Self {
-        Self::Object(Box::new(Object::Native(native)))
+impl From<ObjString> for Value {
+    fn from(value: ObjString) -> Self {
+        Self::Object(Box::new(Object::String(value)))
     }
+}
 
-    pub fn new_upvalue(upvalue: ObjUpvalue) -> Self {
-        Self::Object(Box::new(Object::UpValue(upvalue)))
+impl From<ObjClass> for Value {
+    fn from(value: ObjClass) -> Self {
+        Self::Object(Box::new(Object::Class(value)))
     }
+}
 
-    pub fn new_closure(closure: ObjClosure) -> Self {
-        Self::Object(Box::new(Object::Closure(closure)))
+impl From<ObjBoundMethod> for Value {
+    fn from(value: ObjBoundMethod) -> Self {
+        Self::Object(Box::new(Object::BoundMethod(value)))
+    }
+}
+
+impl From<ObjInstance> for Value {
+    fn from(value: ObjInstance) -> Self {
+        Self::Object(Box::new(Object::Instance(value)))
+    }
+}
+
+impl From<ObjNative> for Value {
+    fn from(value: ObjNative) -> Self {
+        Self::Object(Box::new(Object::Native(value)))
+    }
+}
+
+impl From<ObjUpvalue> for Value {
+    fn from(value: ObjUpvalue) -> Self {
+        Self::Object(Box::new(Object::UpValue(value)))
+    }
+}
+
+impl From<ObjClosure> for Value {
+    fn from(value: ObjClosure) -> Self {
+        Self::Object(Box::new(Object::Closure(value)))
     }
 }
 

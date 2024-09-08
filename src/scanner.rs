@@ -44,8 +44,29 @@ impl Scanner {
         }
 
         let lexeme: String = lexeme_builder.into_iter().collect();
+        let kind = {
+            match lexeme.as_str() {
+                "and" => TokenType::And,
+                "class" => TokenType::Class,
+                "else" => TokenType::Else,
+                "false" => TokenType::False,
+                "for" => TokenType::For,
+                "fun" => TokenType::Fun,
+                "if" => TokenType::If,
+                "nil" => TokenType::Nil,
+                "or" => TokenType::Or,
+                "print" => TokenType::Print,
+                "return" => TokenType::Return,
+                "super" => TokenType::Super,
+                "this" => TokenType::This,
+                "true" => TokenType::True,
+                "var" => TokenType::Var,
+                "while" => TokenType::While,
+                _ => TokenType::Identifier,
+            }
+        };
         Some(Token {
-            kind: TokenType::Identifier,
+            kind,
             line: self.line,
             lexeme,
         })
@@ -475,5 +496,121 @@ mod test {
                 line: 1
             }
         );
+    }
+
+    #[test]
+    fn it_scans_a_boolean() {
+        let source = "true false";
+        let mut scanner = Scanner::new(source.into());
+        let token = scanner.next().unwrap();
+        assert_eq!(
+            token,
+            Token {
+                kind: TokenType::True,
+                lexeme: "true".into(),
+                line: 1
+            }
+        );
+        let token = scanner.next().unwrap();
+        assert_eq!(
+            token,
+            Token {
+                kind: TokenType::False,
+                lexeme: "false".into(),
+                line: 1
+            }
+        );
+    }
+
+    #[test]
+    fn it_scans_a_nil() {
+        let source = "nil";
+        let mut scanner = Scanner::new(source.into());
+        let token = scanner.next().unwrap();
+        assert_eq!(
+            token,
+            Token {
+                kind: TokenType::Nil,
+                lexeme: "nil".into(),
+                line: 1
+            }
+        );
+    }
+
+    #[test]
+    fn it_scans_a_keyword() {
+        let source = "and class else for fun if or print return super this var while";
+        let mut scanner = Scanner::new(source.into());
+        let expected_tokens = [
+            Token {
+                kind: TokenType::And,
+                lexeme: "and".into(),
+                line: 1,
+            },
+            Token {
+                kind: TokenType::Class,
+                lexeme: "class".into(),
+                line: 1,
+            },
+            Token {
+                kind: TokenType::Else,
+                lexeme: "else".into(),
+                line: 1,
+            },
+            Token {
+                kind: TokenType::For,
+                lexeme: "for".into(),
+                line: 1,
+            },
+            Token {
+                kind: TokenType::Fun,
+                lexeme: "fun".into(),
+                line: 1,
+            },
+            Token {
+                kind: TokenType::If,
+                lexeme: "if".into(),
+                line: 1,
+            },
+            Token {
+                kind: TokenType::Or,
+                lexeme: "or".into(),
+                line: 1,
+            },
+            Token {
+                kind: TokenType::Print,
+                lexeme: "print".into(),
+                line: 1,
+            },
+            Token {
+                kind: TokenType::Return,
+                lexeme: "return".into(),
+                line: 1,
+            },
+            Token {
+                kind: TokenType::Super,
+                lexeme: "super".into(),
+                line: 1,
+            },
+            Token {
+                kind: TokenType::This,
+                lexeme: "this".into(),
+                line: 1,
+            },
+            Token {
+                kind: TokenType::Var,
+                lexeme: "var".into(),
+                line: 1,
+            },
+            Token {
+                kind: TokenType::While,
+                lexeme: "while".into(),
+                line: 1,
+            },
+        ];
+
+        for token in expected_tokens {
+            assert_eq!(scanner.next().unwrap(), token);
+        }
     }
 }

@@ -5,8 +5,8 @@ use crate::{object::Object, value::Value};
 #[derive(Debug, Default, PartialEq)]
 pub struct Chunk {
     pub code: Vec<u8>,
-    lines: Vec<usize>,
-    constants: Vec<Value>,
+    pub lines: Vec<usize>,
+    pub constants: Vec<Value>,
 }
 
 impl Chunk {
