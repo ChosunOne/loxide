@@ -496,6 +496,7 @@ impl Compiler {
     }
 
     fn fun_declaration(&mut self) {
+        self.advance_scanner();
         let global = self.parse_variable("Expect function name.");
         self.mark_initialized();
         self.function(FunctionType::Function);
@@ -503,6 +504,7 @@ impl Compiler {
     }
 
     fn var_declaration(&mut self) {
+        self.advance_scanner();
         let global = self.parse_variable("Expect variable name.");
         if self.advance_if_eq(TokenType::Equal) {
             self.expression(BindingPower::AssignmentRight);
@@ -1021,46 +1023,626 @@ mod test {
         let function = compiler.compile().unwrap();
         let chunk = function.chunk;
 
+        let expected_codes = [OpCode::Nil as u8, OpCode::Return as u8];
+        let expected_lines = [1; 2];
+
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
         assert_eq!(function.arity, 0);
         assert_eq!(function.upvalue_count, 0);
         assert!(function.name.is_none());
         assert_eq!(chunk.code.len(), 2);
-        assert_eq!(chunk.code[0], OpCode::Nil as u8);
-        assert_eq!(chunk.code[1], OpCode::Return as u8);
         assert_eq!(chunk.lines.len(), 2);
-        assert_eq!(chunk.lines[0], 1);
-        assert_eq!(chunk.lines[1], 1);
         assert!(chunk.constants.is_empty());
     }
 
     #[test]
     fn it_compiles_a_single_number_literal() {
-        let source = "3.14159;".into();
+        let source = "123.456;".into();
         let compiler = Compiler::new(source);
         let chunk = compiler.compile().unwrap().chunk;
+        let expected_codes = [
+            OpCode::Constant as u8,
+            0,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+        let expected_lines = [1; 5];
+        let expected_constants = [Value::from(123.456)];
 
         assert_eq!(chunk.code.len(), 5);
-        assert_eq!(chunk.code[0], OpCode::Constant as u8);
-        assert_eq!(chunk.code[1], 0); // Constant index
-        assert_eq!(chunk.code[2], OpCode::Pop as u8);
-        assert_eq!(chunk.code[3], OpCode::Nil as u8);
-        assert_eq!(chunk.code[4], OpCode::Return as u8);
-        assert_eq!(chunk.constants.len(), 1);
-        assert_eq!(chunk.constants[0], Value::from(3.14159));
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
         assert_eq!(chunk.lines.len(), 5);
-        assert_eq!(chunk.lines[0], 1);
-        assert_eq!(chunk.lines[1], 1);
-        assert_eq!(chunk.lines[2], 1);
-        assert_eq!(chunk.lines[3], 1);
-        assert_eq!(chunk.lines[4], 1);
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), 1);
+        for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
+            assert_eq!(constant, expected_constant);
+        }
     }
 
     #[test]
-    fn it_compiles_a_single_boolean_literal() {
+    fn it_compiles_a_single_boolean_false_literal() {
         let source = "false;".into();
         let compiler = Compiler::new(source);
         let chunk = compiler.compile().unwrap().chunk;
 
+        let expected_codes = [
+            OpCode::False as u8,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+
+        let expected_lines = [1; 4];
+
         assert_eq!(chunk.code.len(), 4);
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), 4);
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), 0);
+    }
+
+    #[test]
+    fn it_compiles_a_single_boolean_true_literal() {
+        let source = "true;".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_codes = [
+            OpCode::True as u8,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+
+        let expected_lines = [1; 4];
+
+        assert_eq!(chunk.code.len(), 4);
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), 4);
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), 0);
+    }
+
+    #[test]
+    fn it_compiles_a_single_nil_literal() {
+        let source = "nil;".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_codes = [
+            OpCode::Nil as u8,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+
+        let expected_lines = [1; 4];
+
+        assert_eq!(chunk.code.len(), 4);
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), 4);
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), 0);
+    }
+
+    #[test]
+    fn it_compiles_a_single_string_literal() {
+        let source = "\"hello lox\";".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+        let expected_codes = [
+            OpCode::Constant as u8,
+            0,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+        let expected_lines = [1; 5];
+        let expected_constants = [Value::from("hello lox")];
+
+        assert_eq!(chunk.code.len(), 5);
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), 5);
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), 1);
+        for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
+            assert_eq!(constant, expected_constant);
+        }
+    }
+
+    #[test]
+    fn it_compiles_a_unary_expression() {
+        let source = "-1;!true;".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+        let expected_codes = [
+            OpCode::Constant as u8,
+            0,
+            OpCode::Negate as u8,
+            OpCode::Pop as u8,
+            OpCode::True as u8,
+            OpCode::Not as u8,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+        let expected_lines = [1; 9];
+        let expected_constants = [Value::from(1.0)];
+
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), 1);
+        for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
+            assert_eq!(constant, expected_constant);
+        }
+    }
+
+    #[test]
+    fn it_compiles_an_add_expression() {
+        let source = "1 + 2;".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_codes = [
+            OpCode::Constant as u8,
+            0,
+            OpCode::Constant as u8,
+            1,
+            OpCode::Add as u8,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+        let expected_lines = [1; 8];
+        let expected_constants = [Value::from(1.0), Value::from(2.0)];
+
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), 2);
+        for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
+            assert_eq!(constant, expected_constant);
+        }
+    }
+
+    #[test]
+    fn it_compiles_a_subtract_expression() {
+        let source = "1 - 2;".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_codes = [
+            OpCode::Constant as u8,
+            0,
+            OpCode::Constant as u8,
+            1,
+            OpCode::Subtract as u8,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+        let expected_lines = [1; 8];
+        let expected_constants = [Value::from(1.0), Value::from(2.0)];
+
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), 2);
+        for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
+            assert_eq!(constant, expected_constant);
+        }
+    }
+
+    #[test]
+    fn it_compiles_a_multiply_expression() {
+        let source = "1 * 2;".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_codes = [
+            OpCode::Constant as u8,
+            0,
+            OpCode::Constant as u8,
+            1,
+            OpCode::Multiply as u8,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+        let expected_lines = [1; 8];
+        let expected_constants = [Value::from(1.0), Value::from(2.0)];
+
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), 2);
+        for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
+            assert_eq!(constant, expected_constant);
+        }
+    }
+
+    #[test]
+    fn it_compiles_a_divide_expression() {
+        let source = "1 / 2;".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_codes = [
+            OpCode::Constant as u8,
+            0,
+            OpCode::Constant as u8,
+            1,
+            OpCode::Divide as u8,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+        let expected_lines = [1; 8];
+        let expected_constants = [Value::from(1.0), Value::from(2.0)];
+
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), 2);
+        for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
+            assert_eq!(constant, expected_constant);
+        }
+    }
+
+    #[test]
+    fn it_compiles_a_less_expression() {
+        let source = "1 < 2;".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_codes = [
+            OpCode::Constant as u8,
+            0,
+            OpCode::Constant as u8,
+            1,
+            OpCode::Less as u8,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+        let expected_lines = [1; 8];
+        let expected_constants = [Value::from(1.0), Value::from(2.0)];
+
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), 2);
+        for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
+            assert_eq!(constant, expected_constant);
+        }
+    }
+
+    #[test]
+    fn it_compiles_a_greater_expression() {
+        let source = "1 > 2;".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_codes = [
+            OpCode::Constant as u8,
+            0,
+            OpCode::Constant as u8,
+            1,
+            OpCode::Greater as u8,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+        let expected_lines = [1; 8];
+        let expected_constants = [Value::from(1.0), Value::from(2.0)];
+
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), 2);
+        for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
+            assert_eq!(constant, expected_constant);
+        }
+    }
+
+    #[test]
+    fn it_compiles_an_equal_expression() {
+        let source = "1 == 2;".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_codes = [
+            OpCode::Constant as u8,
+            0,
+            OpCode::Constant as u8,
+            1,
+            OpCode::Equal as u8,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+        let expected_lines = [1; 8];
+        let expected_constants = [Value::from(1.0), Value::from(2.0)];
+
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), 2);
+        for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
+            assert_eq!(constant, expected_constant);
+        }
+    }
+
+    #[test]
+    fn it_compiles_a_less_equal_expression() {
+        let source = "1 <= 2;".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_codes = [
+            OpCode::Constant as u8,
+            0,
+            OpCode::Constant as u8,
+            1,
+            OpCode::Greater as u8,
+            OpCode::Not as u8,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+        let expected_lines = [1; 9];
+        let expected_constants = [Value::from(1.0), Value::from(2.0)];
+
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), 2);
+        for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
+            assert_eq!(constant, expected_constant);
+        }
+    }
+
+    #[test]
+    fn it_compiles_a_greater_equal_expression() {
+        let source = "1 >= 2;".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_codes = [
+            OpCode::Constant as u8,
+            0,
+            OpCode::Constant as u8,
+            1,
+            OpCode::Less as u8,
+            OpCode::Not as u8,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+        let expected_lines = [1; 9];
+        let expected_constants = [Value::from(1.0), Value::from(2.0)];
+
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), 2);
+        for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
+            assert_eq!(constant, expected_constant);
+        }
+    }
+
+    #[test]
+    fn it_compiles_an_and_expression() {
+        let source = "true and false;".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_codes = [
+            OpCode::True as u8,
+            OpCode::JumpIfFalse as u8,
+            0,
+            2,
+            OpCode::Pop as u8,
+            OpCode::False as u8,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+        let expected_lines = [1; 9];
+        let expected_constants = [];
+
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), 0);
+        for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
+            assert_eq!(constant, expected_constant);
+        }
+    }
+
+    #[test]
+    fn it_compiles_an_or_expression() {
+        let source = "true or false;".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_codes = [
+            OpCode::True as u8,
+            OpCode::JumpIfFalse as u8,
+            0,
+            3,
+            OpCode::Jump as u8,
+            0,
+            2,
+            OpCode::Pop as u8,
+            OpCode::False as u8,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+        let expected_lines = [1; 12];
+        let expected_constants = [];
+
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), 0);
+        for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
+            assert_eq!(constant, expected_constant);
+        }
+    }
+
+    #[test]
+    fn it_compiles_a_global_declaration() {
+        let source = "var a;".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_codes = [
+            OpCode::Nil as u8,
+            OpCode::DefineGlobal as u8,
+            0,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+        let expected_lines = [1; 5];
+        let expected_constants = [Value::from("a")];
+
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), 1);
+        for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
+            assert_eq!(constant, expected_constant);
+        }
     }
 }
