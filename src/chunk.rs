@@ -2,7 +2,7 @@ use std::fmt::{Display, Error};
 
 use crate::{object::Object, value::Value};
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Chunk {
     pub code: Vec<u8>,
     pub lines: Vec<usize>,

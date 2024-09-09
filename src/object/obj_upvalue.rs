@@ -1,7 +1,7 @@
 use crate::{object::Obj, value::Value};
 use std::{fmt::Display, rc::Rc};
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ObjUpvalue {
     pub obj: Obj,
     pub location: Rc<Value>,

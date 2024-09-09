@@ -21,7 +21,7 @@ use std::{
     rc::Rc,
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Object {
     BoundMethod(ObjBoundMethod),
     Class(ObjClass),
@@ -48,7 +48,7 @@ impl Display for Object {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Obj {
     pub next: Option<Rc<Object>>,
 }

@@ -1,7 +1,7 @@
 use crate::object::Obj;
 use std::fmt::Display;
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ObjString {
     pub obj: Obj,
     pub hash: u32,

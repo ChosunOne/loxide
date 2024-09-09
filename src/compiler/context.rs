@@ -1,9 +1,9 @@
-use std::array;
+use std::{array, rc::Rc};
 
 use crate::{
     chunk::OpCode,
     compiler::{local::Local, upvalue::Upvalue},
-    object::ObjFunction,
+    object::{Obj, ObjFunction, ObjString},
     token::{Token, TokenType},
 };
 
@@ -20,7 +20,7 @@ pub struct Context {
 }
 
 impl Context {
-    pub fn new(function_type: FunctionType) -> Self {
+    pub fn new(function_type: FunctionType, name: Option<String>) -> Self {
         let mut locals = array::from_fn(|_| Local::default());
         let local = &mut locals[0];
         local.depth = 0;
@@ -35,8 +35,17 @@ impl Context {
             token
         };
 
+        let mut function = ObjFunction::default();
+        if function_type != FunctionType::Script {
+            function.name = Some(Rc::new(ObjString {
+                obj: Obj::default(),
+                chars: name.unwrap_or("anonymous".into()),
+                hash: 0,
+            }));
+        }
+
         Self {
-            function: ObjFunction::default(),
+            function,
             scope_depth: 0,
             function_type,
             local_count: 1,

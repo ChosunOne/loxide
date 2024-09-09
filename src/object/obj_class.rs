@@ -1,7 +1,7 @@
 use crate::object::{Obj, ObjFunction, ObjString};
 use std::{collections::HashMap, fmt::Display, rc::Rc};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ObjClass {
     pub obj: Obj,
     pub name: Rc<ObjString>,

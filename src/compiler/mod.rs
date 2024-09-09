@@ -30,7 +30,7 @@ pub struct Compiler {
 impl Compiler {
     pub fn new(source: String) -> Self {
         let scanner = Scanner::new(source).peekable();
-        let context_stack = vec![Context::new(FunctionType::Script)];
+        let context_stack = vec![Context::new(FunctionType::Script, None)];
         Self {
             scanner,
             line: 1,
@@ -700,7 +700,8 @@ impl Compiler {
     }
 
     fn function(&mut self, function_type: FunctionType) {
-        let context = Context::new(function_type);
+        let name = self.previous().lexeme.clone();
+        let context = Context::new(function_type, name.into());
         self.context_stack.push(context);
         self.begin_scope();
 
@@ -720,7 +721,6 @@ impl Compiler {
         }
 
         self.consume(TokenType::RightParen, "Expect ')' after parameters.");
-        self.consume(TokenType::LeftBrace, "Expect '{' before function body.");
 
         self.block();
         self.emit_return();
@@ -1022,6 +1022,10 @@ impl Compiler {
 
 #[cfg(test)]
 mod test {
+    use std::rc::Rc;
+
+    use crate::object::{Obj, ObjString, Object};
+
     use super::*;
 
     #[test]
@@ -1069,6 +1073,104 @@ mod test {
         assert_eq!(chunk.code.len(), 2);
         assert_eq!(chunk.lines.len(), 2);
         assert!(chunk.constants.is_empty());
+    }
+
+    #[test]
+    fn it_compiles_an_empty_function() {
+        let source = "fun foo() {}".into();
+        let compiler = Compiler::new(source);
+        let function = compiler.compile().unwrap();
+        let chunk = function.chunk;
+        let empty_function_value = &chunk.constants[1];
+        let Value::Object(b) = empty_function_value else {
+            panic!("Failed to get function from chunk.");
+        };
+        let Object::Function(f) = &**b else {
+            panic!("Failed to get function from chunk.");
+        };
+        let empty_function_chunk = &f.chunk;
+        let expected_function_codes = [OpCode::Nil as u8, OpCode::Return as u8];
+        let expected_codes = [
+            OpCode::Closure as u8,
+            1,
+            OpCode::DefineGlobal as u8,
+            0,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+
+        let expected_function_lines = [1; 2];
+        let expected_lines = [1; 6];
+
+        let expected_function_constants = [];
+        let expected_constants = [
+            Value::from("foo"),
+            Value::from(ObjFunction {
+                obj: Obj::default(),
+                arity: 0,
+                upvalue_count: 0,
+                chunk: Chunk {
+                    code: expected_function_codes.into(),
+                    lines: expected_function_lines.into(),
+                    constants: expected_function_constants.clone().into(),
+                },
+                name: Some(Rc::new(ObjString {
+                    obj: Obj::default(),
+                    chars: "foo".into(),
+                    hash: 0,
+                })),
+            }),
+        ];
+
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+        assert_eq!(
+            empty_function_chunk.code.len(),
+            expected_function_codes.len()
+        );
+        for (&code, expected_code) in empty_function_chunk
+            .code
+            .iter()
+            .zip(expected_function_codes)
+        {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(
+            empty_function_chunk.lines.len(),
+            expected_function_lines.len()
+        );
+        for (&line, expected_line) in empty_function_chunk
+            .lines
+            .iter()
+            .zip(expected_function_lines)
+        {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), expected_constants.len());
+        for (constant, expected_constant) in chunk.constants.iter().zip(expected_constants.iter()) {
+            assert_eq!(constant, expected_constant);
+        }
+
+        assert_eq!(
+            empty_function_chunk.constants.len(),
+            expected_function_constants.len()
+        );
+        for (constant, expected_constant) in empty_function_chunk
+            .constants
+            .iter()
+            .zip(expected_function_constants.iter())
+        {
+            assert_eq!(constant, expected_constant);
+        }
     }
 
     #[test]
@@ -1938,7 +2040,6 @@ mod test {
         let source = "var a = 1; { a = a + 1; }".into();
         let compiler = Compiler::new(source);
         let chunk = compiler.compile().unwrap().chunk;
-        println!("{chunk}");
 
         let expected_codes = [
             OpCode::Constant as u8,
@@ -1976,7 +2077,6 @@ mod test {
             assert_eq!(line, expected_line);
         }
 
-        println!("{:?}", chunk.constants);
         assert_eq!(chunk.constants.len(), expected_constants.len());
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
             assert_eq!(constant, expected_constant);

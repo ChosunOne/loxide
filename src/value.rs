@@ -5,7 +5,7 @@ use crate::object::{
     ObjUpvalue, Object,
 };
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum Value {
     Bool(bool),
     Number(f64),

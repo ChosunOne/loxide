@@ -1,7 +1,7 @@
 use crate::object::{Obj, ObjFunction, ObjUpvalue};
 use std::{fmt::Display, rc::Rc};
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ObjClosure {
     pub obj: Obj,
     pub function: Rc<ObjFunction>,

@@ -5,7 +5,7 @@ use crate::{
 
 use std::{fmt::Display, rc::Rc};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ObjBoundMethod {
     pub obj: Obj,
     pub receiver: Value,
