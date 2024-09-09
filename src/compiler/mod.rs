@@ -285,6 +285,7 @@ impl Compiler {
     fn end_scope(&mut self) {
         let line = self.line;
         let context = self.current_context();
+        context.scope_depth -= 1;
         while context.local_count > 0
             && context.locals[context.local_count - 1].depth as usize > context.scope_depth
         {
@@ -643,7 +644,7 @@ impl Compiler {
 
     fn while_statement(&mut self) {
         if !self.advance_if_eq(TokenType::While) {
-            panic!("ICE: Failed to find 'while' token for if statement.");
+            panic!("ICE: Failed to find 'while' token for while statement.");
         }
         let loop_start = self.current_chunk().code.len();
 
@@ -730,6 +731,9 @@ impl Compiler {
     }
 
     fn block(&mut self) {
+        if !self.advance_if_eq(TokenType::LeftBrace) {
+            panic!("ICE: Failed to find '{{' token for block statement.");
+        }
         while self.peek_scanner().kind != TokenType::RightBrace
             && self.peek_scanner().kind != TokenType::Eof
         {
@@ -744,7 +748,6 @@ impl Compiler {
     }
 
     fn expression(&mut self, min_binding_power: BindingPower) {
-        println!("{min_binding_power:?}");
         self.advance_scanner();
 
         match self.previous().kind {
@@ -1041,6 +1044,28 @@ mod test {
         assert_eq!(function.arity, 0);
         assert_eq!(function.upvalue_count, 0);
         assert!(function.name.is_none());
+        assert_eq!(chunk.code.len(), 2);
+        assert_eq!(chunk.lines.len(), 2);
+        assert!(chunk.constants.is_empty());
+    }
+
+    #[test]
+    fn it_compiles_an_empty_block() {
+        let source = "{}".into();
+        let compiler = Compiler::new(source);
+        let function = compiler.compile().unwrap();
+        let chunk = function.chunk;
+
+        let expected_codes = [OpCode::Nil as u8, OpCode::Return as u8];
+        let expected_lines = [1; 2];
+
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
         assert_eq!(chunk.code.len(), 2);
         assert_eq!(chunk.lines.len(), 2);
         assert!(chunk.constants.is_empty());
@@ -1785,6 +1810,37 @@ mod test {
         ];
         let expected_lines = [1; 9];
         let expected_constants = [Value::from("a"), Value::from(1.0), Value::from("a")];
+
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), expected_constants.len());
+        for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
+            assert_eq!(constant, expected_constant);
+        }
+    }
+
+    #[test]
+    fn it_compiles_a_local_declaration() {
+        let source = "{ var a; }".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_codes = [
+            OpCode::Nil as u8,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+        let expected_lines = [1; 4];
+        let expected_constants = [];
 
         assert_eq!(chunk.code.len(), expected_codes.len());
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
