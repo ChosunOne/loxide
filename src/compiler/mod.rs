@@ -1932,4 +1932,54 @@ mod test {
             assert_eq!(constant, expected_constant);
         }
     }
+
+    #[test]
+    fn it_compiles_a_global_reference_in_local_scope() {
+        let source = "var a = 1; { a = a + 1; }".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+        println!("{chunk}");
+
+        let expected_codes = [
+            OpCode::Constant as u8,
+            1,
+            OpCode::DefineGlobal as u8,
+            0,
+            OpCode::GetGlobal as u8,
+            3,
+            OpCode::Constant as u8,
+            4,
+            OpCode::Add as u8,
+            OpCode::SetGlobal as u8,
+            2,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+
+        let expected_lines = [1; 14];
+        let expected_constants = [
+            Value::from("a"),
+            Value::from(1.0),
+            Value::from("a"),
+            Value::from("a"),
+            Value::from(1.0),
+        ];
+
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        println!("{:?}", chunk.constants);
+        assert_eq!(chunk.constants.len(), expected_constants.len());
+        for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
+            assert_eq!(constant, expected_constant);
+        }
+    }
 }
