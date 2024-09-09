@@ -257,7 +257,7 @@ impl Compiler {
         eprint!("[line {}] Error", token.line);
 
         match token.kind {
-            TokenType::Eof => eprint!("at end"),
+            TokenType::Eof => eprint!(" at end"),
             TokenType::Error => {}
             _ => eprint!(" at {}", token.lexeme),
         }
@@ -667,6 +667,9 @@ impl Compiler {
     }
 
     fn return_statement(&mut self) {
+        if !self.advance_if_eq(TokenType::Return) {
+            panic!("ICE: Failed to read 'return' token for return statement.");
+        }
         if self.current_function_type() == FunctionType::Script {
             self.error("Can't return from top-level code.");
         }
@@ -2081,5 +2084,64 @@ mod test {
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
             assert_eq!(constant, expected_constant);
         }
+    }
+
+    #[test]
+    fn it_compiles_a_function_call() {
+        let source = "fun foo(a, b) { return a + b; } foo(1, 2);".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+        let expected_function_chunk = Chunk {
+            code: vec![
+                OpCode::GetLocal as u8,
+                1,
+                OpCode::GetLocal as u8,
+                2,
+                OpCode::Add as u8,
+                OpCode::Return as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 8],
+            constants: vec![],
+        };
+        let expected_chunk = Chunk {
+            code: vec![
+                OpCode::Closure as u8,
+                1,
+                OpCode::DefineGlobal as u8,
+                0,
+                OpCode::GetGlobal as u8,
+                2,
+                OpCode::Constant as u8,
+                3,
+                OpCode::Constant as u8,
+                4,
+                OpCode::Call as u8,
+                2,
+                OpCode::Pop as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 15],
+            constants: vec![
+                Value::from("foo"),
+                Value::from(ObjFunction {
+                    obj: Obj::default(),
+                    arity: 2,
+                    upvalue_count: 0,
+                    chunk: expected_function_chunk,
+                    name: Some(Rc::new(ObjString {
+                        obj: Obj::default(),
+                        chars: "foo".into(),
+                        hash: 0,
+                    })),
+                }),
+                Value::from("foo"),
+                Value::from(1.0),
+                Value::from(2.0),
+            ],
+        };
+        assert_eq!(chunk, expected_chunk);
     }
 }
