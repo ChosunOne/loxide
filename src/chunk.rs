@@ -158,9 +158,9 @@ impl Display for Chunk {
                         offset += 1;
                         write!(f, "{:04x}        |\t", offset - 2)?;
                         if is_local != 0 {
-                            write!(f, "local")?;
+                            write!(f, "local ")?;
                         } else {
-                            write!(f, "upvalue")?;
+                            write!(f, "upvalue ")?;
                         }
 
                         writeln!(f, "{index}")?;
@@ -448,6 +448,6 @@ mod test {
         chunk.write(2, 1); // index
 
         let chunk_display = format!("{chunk}");
-        assert_eq!(&chunk_display, "0000\t   1\tOP_CLOSURE\t   0\t<fn closure>\n0002        |\tlocal1\n0004        |\tupvalue2\n");
+        assert_eq!(&chunk_display, "0000\t   1\tOP_CLOSURE\t   0\t<fn closure>\n0002        |\tlocal 1\n0004        |\tupvalue 2\n");
     }
 }

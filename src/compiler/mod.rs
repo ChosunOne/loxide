@@ -321,16 +321,17 @@ impl Compiler {
     }
 
     fn resolve_upvalue(&mut self, name: &Token, index: usize) -> Option<usize> {
-        let local = self.resolve_local(name, index);
-        let enclosing_context = self.peek_context(index)?;
+        self.peek_context(index + 1)?;
+        let local = self.resolve_local(name, index + 1);
+        let enclosing_context = self.peek_context(index + 1)?;
         match local {
             Some(l) => {
                 enclosing_context.locals[l].is_captured = true;
-                return self.add_upvalue(l, true).into();
+                return self.add_upvalue(index, l, true).into();
             }
             None => {
                 if let Some(v) = self.resolve_upvalue(name, index + 1) {
-                    return self.add_upvalue(v, false).into();
+                    return self.add_upvalue(index, v, false).into();
                 }
             }
         }
@@ -351,14 +352,19 @@ impl Compiler {
         self.identifier_constant(self.previous().clone())
     }
 
-    fn add_upvalue(&mut self, index: usize, is_local: bool) -> usize {
-        let upvalue_count;
+    fn add_upvalue(&mut self, context_index: usize, upvalue_index: usize, is_local: bool) -> usize {
+        let upvalue_count = self
+            .peek_context(context_index)
+            .expect("ICE: Failed to peek context")
+            .function
+            .upvalue_count;
         {
-            let context = self.current_context();
-            upvalue_count = context.upvalue_count;
+            let context = self
+                .peek_context(context_index)
+                .expect("ICE: Failed to peek context");
             for i in 0..upvalue_count {
                 let upvalue = &context.upvalues[i];
-                if upvalue.index == index && upvalue.is_local == is_local {
+                if upvalue.index == upvalue_index && upvalue.is_local == is_local {
                     return i;
                 }
             }
@@ -366,14 +372,17 @@ impl Compiler {
 
         if upvalue_count == u8::MAX as usize {
             self.error("Too many closure variables in function.");
+            return 0;
         }
 
-        let context = self.current_context();
+        let context = self
+            .peek_context(context_index)
+            .expect("Failed to peek context");
 
         context.upvalues[upvalue_count].is_local = is_local;
-        context.upvalues[upvalue_count].index = index;
+        context.upvalues[upvalue_count].index = upvalue_index;
         context.function.upvalue_count += 1;
-        context.function.upvalue_count
+        context.function.upvalue_count - 1
     }
 
     fn add_local(&mut self, name: Token) {
@@ -728,9 +737,14 @@ impl Compiler {
         self.block();
         self.emit_return();
         let context = self.pop_context();
+        let upvalues = &context.upvalues[..context.function.upvalue_count];
         let constant = self.make_constant(Value::from(context.function));
         self.emit_opcode(OpCode::Closure);
         self.emit_byte(constant);
+        for upvalue in upvalues {
+            self.emit_byte(upvalue.is_local as u8);
+            self.emit_byte(upvalue.index as u8);
+        }
     }
 
     fn block(&mut self) {
@@ -2142,6 +2156,111 @@ mod test {
                 Value::from(2.0),
             ],
         };
+        assert_eq!(chunk, expected_chunk);
+    }
+
+    #[test]
+    fn it_compiles_a_closure() {
+        let source =
+            "fun foo(a, b) { fun bar() { return a + b; } return bar(); } foo(1, 2);".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+        let expected_bar_chunk = Chunk {
+            code: vec![
+                OpCode::GetUpvalue as u8,
+                0,
+                OpCode::GetUpvalue as u8,
+                1,
+                OpCode::Add as u8,
+                OpCode::Return as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 8],
+            constants: vec![],
+        };
+        let expected_foo_chunk = Chunk {
+            code: vec![
+                OpCode::Closure as u8,
+                0,
+                1,
+                1,
+                1,
+                2,
+                OpCode::GetLocal as u8,
+                3,
+                OpCode::Call as u8,
+                0,
+                OpCode::Return as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 13],
+            constants: vec![Value::from(ObjFunction {
+                obj: Obj::default(),
+                arity: 0,
+                upvalue_count: 2,
+                chunk: expected_bar_chunk,
+                name: Some(Rc::new(ObjString {
+                    obj: Obj::default(),
+                    hash: 0,
+                    chars: "bar".into(),
+                })),
+            })],
+        };
+        let expected_chunk = Chunk {
+            code: vec![
+                OpCode::Closure as u8,
+                1,
+                OpCode::DefineGlobal as u8,
+                0,
+                OpCode::GetGlobal as u8,
+                2,
+                OpCode::Constant as u8,
+                3,
+                OpCode::Constant as u8,
+                4,
+                OpCode::Call as u8,
+                2,
+                OpCode::Pop as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 15],
+            constants: vec![
+                Value::from("foo"),
+                Value::from(ObjFunction {
+                    obj: Obj::default(),
+                    arity: 2,
+                    upvalue_count: 0,
+                    chunk: expected_foo_chunk,
+                    name: Some(Rc::new(ObjString {
+                        obj: Obj::default(),
+                        hash: 0,
+                        chars: "foo".into(),
+                    })),
+                }),
+                Value::from("foo"),
+                Value::from(1.0),
+                Value::from(2.0),
+            ],
+        };
+        let Value::Object(o) = &chunk.constants[1] else {
+            panic!("Failed to read foo chunk.");
+        };
+        let Object::Function(foo) = &**o else {
+            panic!("Failed to read foo chunk.");
+        };
+
+        let Value::Object(o) = &foo.chunk.constants[0] else {
+            panic!("Failed to read bar chunk.");
+        };
+        let Object::Function(bar) = &**o else {
+            panic!("Failed to read bar chunk.");
+        };
+        println!("{}", bar.chunk);
+        println!("{}", foo.chunk);
+        println!("{chunk}");
         assert_eq!(chunk, expected_chunk);
     }
 }
