@@ -1839,8 +1839,83 @@ mod test {
             OpCode::Nil as u8,
             OpCode::Return as u8,
         ];
+
         let expected_lines = [1; 4];
         let expected_constants = [];
+
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), expected_constants.len());
+        for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
+            assert_eq!(constant, expected_constant);
+        }
+    }
+
+    #[test]
+    fn it_compiles_a_local_definition() {
+        let source = "{ var a = 1; }".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_codes = [
+            OpCode::Constant as u8,
+            0,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+
+        let expected_lines = [1; 5];
+        let expected_constants = [Value::from(1.0)];
+
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
+            assert_eq!(code, expected_code);
+        }
+
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
+            assert_eq!(line, expected_line);
+        }
+
+        assert_eq!(chunk.constants.len(), expected_constants.len());
+        for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
+            assert_eq!(constant, expected_constant);
+        }
+    }
+
+    #[test]
+    fn it_compiles_a_local_reference() {
+        let source = "{ var a = 1; a = a + 1; }".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_codes = [
+            OpCode::Constant as u8,
+            0,
+            OpCode::GetLocal as u8,
+            1,
+            OpCode::Constant as u8,
+            1,
+            OpCode::Add as u8,
+            OpCode::SetLocal as u8,
+            1,
+            OpCode::Pop as u8,
+            OpCode::Pop as u8,
+            OpCode::Nil as u8,
+            OpCode::Return as u8,
+        ];
+
+        let expected_lines = [1; 13];
+        let expected_constants = [Value::from(1.0), Value::from(1.0)];
 
         assert_eq!(chunk.code.len(), expected_codes.len());
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
