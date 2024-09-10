@@ -2657,4 +2657,99 @@ mod test {
         };
         assert_eq!(chunk, expected_chunk);
     }
+
+    #[test]
+    fn it_compiles_a_method_call() {
+        let source = "class TestClass { init(a) {this.a = a;} m() { return this.a; } } var c = TestClass(); c.m();".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+        let expected_init_chunk = Chunk {
+            code: vec![
+                OpCode::GetLocal as u8,
+                0,
+                OpCode::GetLocal as u8,
+                1,
+                OpCode::SetProperty as u8,
+                0,
+                OpCode::Pop as u8,
+                OpCode::GetLocal as u8,
+                0,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 10],
+            constants: vec![Value::from("a")],
+        };
+        let expected_m_chunk = Chunk {
+            code: vec![
+                OpCode::GetLocal as u8,
+                0,
+                OpCode::GetProperty as u8,
+                0,
+                OpCode::Return as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 7],
+            constants: vec![Value::from("a")],
+        };
+        let expected_chunk = Chunk {
+            code: vec![
+                OpCode::Class as u8,
+                0,
+                OpCode::DefineGlobal as u8,
+                0,
+                OpCode::GetGlobal as u8,
+                1,
+                OpCode::Closure as u8,
+                3,
+                OpCode::Method as u8,
+                2,
+                OpCode::Closure as u8,
+                5,
+                OpCode::Method as u8,
+                4,
+                OpCode::Pop as u8,
+                OpCode::GetGlobal as u8,
+                7,
+                OpCode::Call as u8,
+                0,
+                OpCode::DefineGlobal as u8,
+                6,
+                OpCode::GetGlobal as u8,
+                8,
+                OpCode::Invoke as u8,
+                9,
+                0,
+                OpCode::Pop as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 29],
+            constants: vec![
+                Value::from("TestClass"),
+                Value::from("TestClass"),
+                Value::from("init"),
+                Value::from(ObjFunction {
+                    obj: Obj::default(),
+                    arity: 1,
+                    upvalue_count: 0,
+                    chunk: expected_init_chunk,
+                    name: Some(Rc::new(ObjString::from("init"))),
+                }),
+                Value::from("m"),
+                Value::from(ObjFunction {
+                    obj: Obj::default(),
+                    arity: 0,
+                    upvalue_count: 0,
+                    chunk: expected_m_chunk,
+                    name: Some(Rc::new(ObjString::from("m"))),
+                }),
+                Value::from("c"),
+                Value::from("TestClass"),
+                Value::from("c"),
+                Value::from("m"),
+            ],
+        };
+        assert_eq!(chunk, expected_chunk);
+    }
 }
