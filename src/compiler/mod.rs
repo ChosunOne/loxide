@@ -2380,4 +2380,57 @@ mod test {
         };
         assert_eq!(chunk, expected_chunk);
     }
+
+    #[test]
+    fn it_compiles_a_while_loop() {
+        let source = "var a = 0; while (a < 5) { print \"while loop\"; a = a + 1; }".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+        let expected_chunk = Chunk {
+            code: vec![
+                OpCode::Constant as u8,
+                1,
+                OpCode::DefineGlobal as u8,
+                0,
+                OpCode::GetGlobal as u8,
+                2,
+                OpCode::Constant as u8,
+                3,
+                OpCode::Less as u8,
+                OpCode::JumpIfFalse as u8,
+                0,
+                15,
+                OpCode::Pop as u8,
+                OpCode::Constant as u8,
+                4,
+                OpCode::Print as u8,
+                OpCode::GetGlobal as u8,
+                6,
+                OpCode::Constant as u8,
+                7,
+                OpCode::Add as u8,
+                OpCode::SetGlobal as u8,
+                5,
+                OpCode::Pop as u8,
+                OpCode::Loop as u8,
+                0,
+                23,
+                OpCode::Pop as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 30],
+            constants: vec![
+                Value::from("a"),
+                Value::from(0.0),
+                Value::from("a"),
+                Value::from(5.0),
+                Value::from("while loop"),
+                Value::from("a"),
+                Value::from("a"),
+                Value::from(1.0),
+            ],
+        };
+        assert_eq!(chunk, expected_chunk);
+    }
 }
