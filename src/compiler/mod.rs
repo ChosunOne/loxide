@@ -417,7 +417,6 @@ impl Compiler {
             return;
         }
 
-        println!("local_count: {}", context.local_count);
         let local = &mut context.locals[context.local_count];
         context.local_count += 1;
         local.name = name;
@@ -2926,6 +2925,133 @@ mod test {
                     chunk: expected_m_chunk,
                     name: Some(Rc::new(ObjString::from("m"))),
                 }),
+            ],
+        };
+        assert_eq!(chunk, expected_chunk);
+    }
+
+    #[test]
+    fn it_compiles_a_deeply_nested_closure() {
+        let source = "var a = 1; fun foo() { var b = 2; fun bar() { var c = 3; fun baz() { return a + b + c; } baz(); return; } bar(); return; } foo();".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_baz_chunk = Chunk {
+            code: vec![
+                OpCode::GetGlobal as u8,
+                0,
+                OpCode::GetUpvalue as u8,
+                0,
+                OpCode::Add as u8,
+                OpCode::GetUpvalue as u8,
+                1,
+                OpCode::Add as u8,
+                OpCode::Return as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 11],
+            constants: vec![Value::from("a")],
+        };
+
+        let expected_bar_chunk = Chunk {
+            code: vec![
+                OpCode::Constant as u8,
+                0,
+                OpCode::Closure as u8,
+                1,
+                0,
+                0,
+                1,
+                1,
+                OpCode::GetLocal as u8,
+                2,
+                OpCode::Call as u8,
+                0,
+                OpCode::Pop as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 17],
+            constants: vec![
+                3.0.into(),
+                ObjFunction {
+                    obj: Obj::default(),
+                    arity: 0,
+                    upvalue_count: 2,
+                    chunk: expected_baz_chunk,
+                    name: Some(Rc::new(ObjString::from("baz"))),
+                }
+                .into(),
+            ],
+        };
+
+        let expected_foo_chunk = Chunk {
+            code: vec![
+                OpCode::Constant as u8,
+                0,
+                OpCode::Closure as u8,
+                1,
+                1,
+                1,
+                OpCode::GetLocal as u8,
+                2,
+                OpCode::Call as u8,
+                0,
+                OpCode::Pop as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 15],
+            constants: vec![
+                2.0.into(),
+                ObjFunction {
+                    obj: Obj::default(),
+                    arity: 0,
+                    upvalue_count: 1,
+                    chunk: expected_bar_chunk,
+                    name: Some(Rc::new("bar".into())),
+                }
+                .into(),
+            ],
+        };
+
+        let expected_chunk = Chunk {
+            code: vec![
+                OpCode::Constant as u8,
+                1,
+                OpCode::DefineGlobal as u8,
+                0,
+                OpCode::Closure as u8,
+                3,
+                OpCode::DefineGlobal as u8,
+                2,
+                OpCode::GetGlobal as u8,
+                4,
+                OpCode::Call as u8,
+                0,
+                OpCode::Pop as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 15],
+            constants: vec![
+                "a".into(),
+                1.0.into(),
+                "foo".into(),
+                ObjFunction {
+                    obj: Obj::default(),
+                    arity: 0,
+                    upvalue_count: 0,
+                    chunk: expected_foo_chunk,
+                    name: Some(Rc::new("foo".into())),
+                }
+                .into(),
+                "foo".into(),
             ],
         };
         assert_eq!(chunk, expected_chunk);
