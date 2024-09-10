@@ -131,9 +131,10 @@ impl Display for Chunk {
                 | o @ OpCode::GetUpvalue
                 | o @ OpCode::SetUpvalue
                 | o @ OpCode::Call => self.byte_instruction(f, o, offset)?,
-                o @ OpCode::Jump | o @ OpCode::JumpIfFalse | o @ OpCode::Loop => {
+                o @ OpCode::Jump | o @ OpCode::JumpIfFalse => {
                     self.jump_instruction(f, o, 1, offset)?
                 }
+                o @ OpCode::Loop => self.jump_instruction(f, o, -1, offset)?,
                 o @ OpCode::Invoke | o @ OpCode::SuperInvoke => {
                     self.invoke_instruction(f, o, offset)?
                 }
@@ -405,7 +406,7 @@ mod test {
 
         let chunk_display = format!("{chunk}");
         print!("{chunk_display}");
-        assert_eq!(&chunk_display, "0000\t   1\tOP_JUMP\t   0 -> 2\n0003\t    |\tOP_JUMP_IF_FALSE\t   3 -> 5\n0006\t    |\tOP_LOOP\t   6 -> 8\n");
+        assert_eq!(&chunk_display, "0000\t   1\tOP_JUMP\t   0 -> 2\n0003\t    |\tOP_JUMP_IF_FALSE\t   3 -> 5\n0006\t    |\tOP_LOOP\t   6 -> a\n");
     }
 
     #[test]

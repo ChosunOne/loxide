@@ -127,10 +127,12 @@ impl Compiler {
             self.error("Loop body too large.");
         }
 
+        let offset = (offset as u16).to_le_bytes();
+
         // High bits
-        self.emit_byte(((offset >> 8) & 0xff) as u8);
+        self.emit_byte(offset[1]);
         // Low bits
-        self.emit_byte((offset & 0xff) as u8);
+        self.emit_byte(offset[0]);
     }
 
     fn emit_constant(&mut self, value: Value) {
@@ -599,7 +601,6 @@ impl Compiler {
         match self.peek_scanner().kind {
             TokenType::Semicolon => self.advance_scanner(),
             TokenType::Var => {
-                self.advance_scanner();
                 self.var_declaration();
             }
             _ => self.expression_statement(),
@@ -2321,6 +2322,60 @@ mod test {
                 Value::from("a"),
                 Value::from("a"),
                 Value::from(1.0),
+            ],
+        };
+        assert_eq!(chunk, expected_chunk);
+    }
+
+    #[test]
+    fn it_compiles_a_for_loop() {
+        let source = "for (var a = 0; a < 5; a = a + 1) { print \"for loop\"; }".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+        let expected_chunk = Chunk {
+            code: vec![
+                OpCode::Constant as u8,
+                0,
+                OpCode::GetLocal as u8,
+                1,
+                OpCode::Constant as u8,
+                1,
+                OpCode::Less as u8,
+                OpCode::JumpIfFalse as u8,
+                0,
+                21,
+                OpCode::Pop as u8,
+                OpCode::Jump as u8,
+                0,
+                11,
+                OpCode::GetLocal as u8,
+                1,
+                OpCode::Constant as u8,
+                2,
+                OpCode::Add as u8,
+                OpCode::SetLocal as u8,
+                1,
+                OpCode::Pop as u8,
+                OpCode::Loop as u8,
+                0,
+                23,
+                OpCode::Constant as u8,
+                3,
+                OpCode::Print as u8,
+                OpCode::Loop as u8,
+                0,
+                17,
+                OpCode::Pop as u8,
+                OpCode::Pop as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 35],
+            constants: vec![
+                Value::from(0.0),
+                Value::from(5.0),
+                Value::from(1.0),
+                Value::from("for loop"),
             ],
         };
         assert_eq!(chunk, expected_chunk);
