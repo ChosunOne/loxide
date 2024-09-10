@@ -431,7 +431,6 @@ mod test {
         let function_name = Rc::new(ObjString {
             obj: Obj::default(),
             chars: "closure".into(),
-            hash: 12345,
         });
         let function = ObjFunction {
             obj: Obj::default(),

@@ -40,7 +40,6 @@ impl Context {
             function.name = Some(Rc::new(ObjString {
                 obj: Obj::default(),
                 chars: name.unwrap_or("anonymous".into()),
-                hash: 0,
             }));
         }
 

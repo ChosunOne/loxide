@@ -1137,7 +1137,6 @@ mod test {
                 name: Some(Rc::new(ObjString {
                     obj: Obj::default(),
                     chars: "foo".into(),
-                    hash: 0,
                 })),
             }),
         ];
@@ -2151,7 +2150,6 @@ mod test {
                     name: Some(Rc::new(ObjString {
                         obj: Obj::default(),
                         chars: "foo".into(),
-                        hash: 0,
                     })),
                 }),
                 Value::from("foo"),
@@ -2206,7 +2204,6 @@ mod test {
                 chunk: expected_bar_chunk,
                 name: Some(Rc::new(ObjString {
                     obj: Obj::default(),
-                    hash: 0,
                     chars: "bar".into(),
                 })),
             })],
@@ -2239,7 +2236,6 @@ mod test {
                     chunk: expected_foo_chunk,
                     name: Some(Rc::new(ObjString {
                         obj: Obj::default(),
-                        hash: 0,
                         chars: "foo".into(),
                     })),
                 }),

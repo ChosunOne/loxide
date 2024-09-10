@@ -4,7 +4,6 @@ use std::fmt::Display;
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ObjString {
     pub obj: Obj,
-    pub hash: u32,
     pub chars: String,
 }
 
@@ -13,7 +12,6 @@ impl From<&str> for ObjString {
         Self {
             obj: Obj::default(),
             chars: value.into(),
-            hash: 0,
         }
     }
 }
@@ -23,7 +21,6 @@ impl From<String> for ObjString {
         Self {
             obj: Obj::default(),
             chars: value,
-            hash: 0,
         }
     }
 }

@@ -64,21 +64,18 @@ mod test {
         let string1 = Rc::new(Object::String(ObjString {
             obj: Obj { next: None },
             chars: "String".into(),
-            hash: 1234,
         }));
         let string2 = Rc::new(Object::String(ObjString {
             obj: Obj {
                 next: Some(string1),
             },
             chars: "String2".into(),
-            hash: 45321,
         }));
         let mut string3 = Object::String(ObjString {
             obj: Obj {
                 next: Some(string2),
             },
             chars: "String3".into(),
-            hash: 182736,
         });
 
         if let Object::String(ref mut s) = &mut string3 {
@@ -122,7 +119,6 @@ mod test {
         let function_name = Rc::new(ObjString {
             obj: Obj::default(),
             chars: "function_name".into(),
-            hash: 1234,
         });
         let function = Rc::new(ObjFunction {
             obj: Obj::default(),
@@ -144,7 +140,6 @@ mod test {
         let class_name = Rc::new(ObjString {
             obj: Obj::default(),
             chars: "ClassName".into(),
-            hash: 1234,
         });
         let class = Object::Class(ObjClass {
             obj: Obj::default(),
