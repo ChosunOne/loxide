@@ -638,7 +638,9 @@ impl Compiler {
         if !self.advance_if_eq(TokenType::If) {
             panic!("ICE: Failed to find 'if' token for if statement.");
         }
-        self.consume(TokenType::LeftParen, "Expect '(' after condition.");
+        self.consume(TokenType::LeftParen, "Expect '(' after 'if'.");
+        self.expression(BindingPower::Group);
+        self.consume(TokenType::RightParen, "Expect ')' after condition.");
         let then_jump = self.emit_jump(OpCode::JumpIfFalse);
         self.emit_opcode(OpCode::Pop);
         self.statement();
@@ -2261,6 +2263,66 @@ mod test {
         println!("{}", bar.chunk);
         println!("{}", foo.chunk);
         println!("{chunk}");
+        assert_eq!(chunk, expected_chunk);
+    }
+
+    #[test]
+    fn it_compiles_an_if_statement() {
+        let source = "var a = 0; if (a > 0) { a = a + 1; } else { a = a - 1; }".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+        let expected_chunk = Chunk {
+            code: vec![
+                OpCode::Constant as u8,
+                1,
+                OpCode::DefineGlobal as u8,
+                0,
+                OpCode::GetGlobal as u8,
+                2,
+                OpCode::Constant as u8,
+                3,
+                OpCode::Greater as u8,
+                OpCode::JumpIfFalse as u8,
+                0,
+                12,
+                OpCode::Pop as u8,
+                OpCode::GetGlobal as u8,
+                5,
+                OpCode::Constant as u8,
+                6,
+                OpCode::Add as u8,
+                OpCode::SetGlobal as u8,
+                4,
+                OpCode::Pop as u8,
+                OpCode::Jump as u8,
+                0,
+                9,
+                OpCode::Pop as u8,
+                OpCode::GetGlobal as u8,
+                8,
+                OpCode::Constant as u8,
+                9,
+                OpCode::Subtract as u8,
+                OpCode::SetGlobal as u8,
+                7,
+                OpCode::Pop as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 35],
+            constants: vec![
+                Value::from("a"),
+                Value::from(0.0),
+                Value::from("a"),
+                Value::from(0.0),
+                Value::from("a"),
+                Value::from("a"),
+                Value::from(1.0),
+                Value::from("a"),
+                Value::from("a"),
+                Value::from(1.0),
+            ],
+        };
         assert_eq!(chunk, expected_chunk);
     }
 }
