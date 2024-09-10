@@ -2752,4 +2752,47 @@ mod test {
         };
         assert_eq!(chunk, expected_chunk);
     }
+
+    #[test]
+    fn it_compiles_a_sub_class() {
+        let source = "class Parent {} class Child < Parent {}".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+        let expected_chunk = Chunk {
+            code: vec![
+                OpCode::Class as u8,
+                0,
+                OpCode::DefineGlobal as u8,
+                0,
+                OpCode::GetGlobal as u8,
+                1,
+                OpCode::Pop as u8,
+                OpCode::Class as u8,
+                2,
+                OpCode::DefineGlobal as u8,
+                2,
+                OpCode::GetGlobal as u8,
+                3,
+                OpCode::GetGlobal as u8,
+                4,
+                OpCode::Inherit as u8,
+                OpCode::GetGlobal as u8,
+                5,
+                OpCode::Pop as u8,
+                OpCode::Pop as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 22],
+            constants: vec![
+                Value::from("Parent"),
+                Value::from("Parent"),
+                Value::from("Child"),
+                Value::from("Parent"),
+                Value::from("Child"),
+                Value::from("Child"),
+            ],
+        };
+        assert_eq!(chunk, expected_chunk);
+    }
 }
