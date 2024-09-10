@@ -2614,4 +2614,47 @@ mod test {
         println!("{chunk}");
         assert_eq!(chunk, expected_chunk);
     }
+
+    #[test]
+    fn it_compiles_an_empty_method() {
+        let source = "class TestClass { m() {} }".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_chunk = Chunk {
+            code: vec![
+                OpCode::Class as u8,
+                0,
+                OpCode::DefineGlobal as u8,
+                0,
+                OpCode::GetGlobal as u8,
+                1,
+                OpCode::Closure as u8,
+                3,
+                OpCode::Method as u8,
+                2,
+                OpCode::Pop as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 13],
+            constants: vec![
+                Value::from("TestClass"),
+                Value::from("TestClass"),
+                Value::from("m"),
+                Value::from(ObjFunction {
+                    obj: Obj::default(),
+                    arity: 0,
+                    upvalue_count: 0,
+                    name: Some(Rc::new(ObjString::from("m"))),
+                    chunk: Chunk {
+                        code: vec![OpCode::Nil as u8, OpCode::Return as u8],
+                        lines: vec![1; 2],
+                        constants: vec![],
+                    },
+                }),
+            ],
+        };
+        assert_eq!(chunk, expected_chunk);
+    }
 }
