@@ -11,7 +11,6 @@ use crate::{
 pub struct Context {
     pub function: ObjFunction,
     pub function_type: FunctionType,
-    pub class_stack: Vec<Class>,
     pub scope_depth: usize,
     pub locals: [Local; u8::MAX as usize],
     pub local_count: usize,
@@ -25,9 +24,9 @@ impl Context {
         let local = &mut locals[0];
         local.depth = 0;
         let mut token = Token::default();
-        local.name = if FunctionType::Function == function_type {
+        local.name = if FunctionType::Function != function_type {
             token.lexeme = "this".into();
-            token.kind = TokenType::Identifier;
+            token.kind = TokenType::This;
             token
         } else {
             token.lexeme = "".into();
@@ -51,7 +50,6 @@ impl Context {
             locals,
             upvalue_count: 0,
             upvalues: array::from_fn(|_| Upvalue::default()),
-            class_stack: Vec::new(),
         }
     }
 
@@ -62,23 +60,6 @@ impl Context {
     pub fn write_opcode(&mut self, opcode: OpCode, line: usize) {
         self.write(opcode as u8, line);
     }
-
-    pub fn current_class(&mut self) -> &mut Class {
-        self.class_stack
-            .last_mut()
-            .expect("ICE: Failed to get current class")
-    }
-
-    pub fn pop_class(&mut self) -> Class {
-        self.class_stack
-            .pop()
-            .expect("ICE: Failed to get current class")
-    }
-
-    pub fn peek_class(&mut self, index: usize) -> &mut Class {
-        let index = self.class_stack.len() - index - 1;
-        &mut self.class_stack[index]
-    }
 }
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
@@ -88,9 +69,4 @@ pub enum FunctionType {
     Method,
     #[default]
     Script,
-}
-
-#[derive(Debug)]
-pub struct Class {
-    pub has_super_class: bool,
 }

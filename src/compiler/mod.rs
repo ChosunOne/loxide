@@ -4,7 +4,6 @@ pub mod local;
 pub mod upvalue;
 
 use binding_power::{BindingPower, InfixBindingPower, PostfixBindingPower, PrefixBindingPower};
-use context::Class;
 
 use crate::{
     chunk::{Chunk, OpCode},
@@ -18,6 +17,11 @@ use crate::{
 use std::iter::Peekable;
 
 #[derive(Debug)]
+pub struct Class {
+    pub has_super_class: bool,
+}
+
+#[derive(Debug)]
 pub struct Compiler {
     scanner: Peekable<Scanner>,
     had_error: bool,
@@ -25,6 +29,7 @@ pub struct Compiler {
     previous_token: Option<Token>,
     line: usize,
     context_stack: Vec<Context>,
+    class_stack: Vec<Class>,
 }
 
 impl Compiler {
@@ -38,6 +43,7 @@ impl Compiler {
             panic_mode: false,
             previous_token: None,
             context_stack,
+            class_stack: Vec::new(),
         }
     }
 
@@ -79,6 +85,23 @@ impl Compiler {
 
     fn current_function(&mut self) -> &mut ObjFunction {
         &mut self.current_context().function
+    }
+
+    pub fn current_class(&mut self) -> &mut Class {
+        self.class_stack
+            .last_mut()
+            .expect("ICE: Failed to get current class")
+    }
+
+    pub fn pop_class(&mut self) -> Class {
+        self.class_stack
+            .pop()
+            .expect("ICE: Failed to get current class")
+    }
+
+    pub fn peek_class(&mut self, index: usize) -> &mut Class {
+        let index = self.class_stack.len() - index - 1;
+        &mut self.class_stack[index]
     }
 
     fn identifiers_equal(a: &Token, b: &Token) -> bool {
@@ -394,6 +417,7 @@ impl Compiler {
             return;
         }
 
+        println!("local_count: {}", context.local_count);
         let local = &mut context.locals[context.local_count];
         context.local_count += 1;
         local.name = name;
@@ -461,7 +485,7 @@ impl Compiler {
         let class = Class {
             has_super_class: false,
         };
-        self.current_context().class_stack.push(class);
+        self.class_stack.push(class);
 
         if self.advance_if_eq(TokenType::Less) {
             self.consume(TokenType::Identifier, "Expect superclass name.");
@@ -486,7 +510,7 @@ impl Compiler {
 
             self.named_variable(class_name.clone(), BindingPower::LogicalLeft);
             self.emit_opcode(OpCode::Inherit);
-            self.current_context().peek_class(0).has_super_class = true;
+            self.peek_class(0).has_super_class = true;
         }
 
         self.named_variable(class_name, BindingPower::LogicalLeft);
@@ -503,11 +527,11 @@ impl Compiler {
 
         self.consume(TokenType::RightBrace, "Expect '}' after class body.");
         self.emit_opcode(OpCode::Pop);
-        if self.current_context().peek_class(0).has_super_class {
+        if self.peek_class(0).has_super_class {
             self.end_scope();
         }
 
-        self.current_context().pop_class();
+        self.pop_class();
     }
 
     fn fun_declaration(&mut self) {
@@ -776,7 +800,7 @@ impl Compiler {
             TokenType::Number => self.number(),
             TokenType::String => self.string(),
             TokenType::Super => self.super_(min_binding_power),
-            TokenType::This => self.this(),
+            TokenType::This => self.this(min_binding_power),
             _ => {}
         }
 
@@ -817,13 +841,14 @@ impl Compiler {
                 self.advance_scanner();
                 match &self.previous().kind {
                     TokenType::LeftParen => self.call(),
-                    TokenType::Dot => self.dot(bp.right_binding_power),
+                    TokenType::Dot => self.dot(),
                     TokenType::Minus
                     | TokenType::Plus
                     | TokenType::Slash
                     | TokenType::Star
                     | TokenType::BangEqual
                     | TokenType::EqualEqual
+                    | TokenType::Equal
                     | TokenType::Greater
                     | TokenType::GreaterEqual
                     | TokenType::Less
@@ -887,9 +912,9 @@ impl Compiler {
     }
 
     fn super_(&mut self, min_binding_power: BindingPower) {
-        if self.current_context().class_stack.is_empty() {
+        if self.class_stack.is_empty() {
             self.error("Can't use 'super' outside of a class.");
-        } else if !self.current_context().current_class().has_super_class {
+        } else if !self.current_class().has_super_class {
             self.error("Can't use 'super' in a class with no superclass.");
         }
 
@@ -931,12 +956,12 @@ impl Compiler {
         }
     }
 
-    fn this(&mut self) {
-        if self.current_context().class_stack.is_empty() {
+    fn this(&mut self, min_binding_power: BindingPower) {
+        if self.class_stack.is_empty() {
             self.error("Can't use 'this' outside of a class.");
             return;
         }
-        self.variable(BindingPower::LogicalLeft);
+        self.variable(min_binding_power);
     }
 
     fn call(&mut self) {
@@ -945,12 +970,11 @@ impl Compiler {
         self.emit_byte(arg_count);
     }
 
-    fn dot(&mut self, min_binding_power: BindingPower) {
+    fn dot(&mut self) {
         self.consume(TokenType::Identifier, "Expect property name after '.'.");
         let name = self.identifier_constant(self.previous().clone());
-        let can_assign = min_binding_power <= BindingPower::AssignmentLeft;
-        if can_assign && self.advance_if_eq(TokenType::Equal) {
-            self.expression(min_binding_power);
+        if self.advance_if_eq(TokenType::Equal) {
+            self.expression(BindingPower::AssignmentRight);
             self.emit_opcode(OpCode::SetProperty);
             self.emit_byte(name);
         } else if self.advance_if_eq(TokenType::LeftParen) {
@@ -959,6 +983,7 @@ impl Compiler {
             self.emit_bytes(name, arg_count);
         } else {
             self.emit_opcode(OpCode::GetProperty);
+            self.emit_byte(name);
         }
     }
 
@@ -2157,6 +2182,12 @@ mod test {
                 Value::from(2.0),
             ],
         };
+        println!(
+            "{}",
+            chunk.constants.iter().fold(String::new(), |acc, value| {
+                acc + &value.to_string() + ","
+            })
+        );
         assert_eq!(chunk, expected_chunk);
     }
 
@@ -2497,6 +2528,90 @@ mod test {
                 }),
             ],
         };
+        assert_eq!(chunk, expected_chunk);
+    }
+
+    #[test]
+    fn it_compiles_a_class_initializer() {
+        let source = "class TestClass { init() { this.a = 1; this.b = this.a * 2; } }".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+
+        let expected_init_chunk = Chunk {
+            code: vec![
+                OpCode::GetLocal as u8,
+                0,
+                OpCode::Constant as u8,
+                1,
+                OpCode::SetProperty as u8,
+                0,
+                OpCode::Pop as u8,
+                OpCode::GetLocal as u8,
+                0,
+                OpCode::GetLocal as u8,
+                0,
+                OpCode::GetProperty as u8,
+                3,
+                OpCode::Constant as u8,
+                4,
+                OpCode::Multiply as u8,
+                OpCode::SetProperty as u8,
+                2,
+                OpCode::Pop as u8,
+                OpCode::GetLocal as u8,
+                0,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 22],
+            constants: vec![
+                Value::from("a"),
+                Value::from(1.0),
+                Value::from("b"),
+                Value::from("a"),
+                Value::from(2.0),
+            ],
+        };
+        let expected_chunk = Chunk {
+            code: vec![
+                OpCode::Class as u8,
+                0,
+                OpCode::DefineGlobal as u8,
+                0,
+                OpCode::GetGlobal as u8,
+                1,
+                OpCode::Closure as u8,
+                3,
+                OpCode::Method as u8,
+                2,
+                OpCode::Pop as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 13],
+            constants: vec![
+                Value::from("TestClass"),
+                Value::from("TestClass"),
+                Value::from("init"),
+                Value::from(ObjFunction {
+                    obj: Obj::default(),
+                    arity: 0,
+                    upvalue_count: 0,
+                    chunk: expected_init_chunk,
+                    name: Some(Rc::new(ObjString {
+                        obj: Obj::default(),
+                        chars: "init".into(),
+                    })),
+                }),
+            ],
+        };
+        let Value::Object(o) = &chunk.constants[3] else {
+            panic!("Failed to get init chunk");
+        };
+        let Object::Function(init) = &**o else {
+            panic!("Failed to get init chunk");
+        };
+        println!("{}", init.chunk);
+        println!("{chunk}");
         assert_eq!(chunk, expected_chunk);
     }
 }
