@@ -1715,6 +1715,29 @@ mod test {
     }
 
     #[test]
+    fn it_compiles_a_not_equal_expression() {
+        let source = "1 != 2;".into();
+        let compiler = Compiler::new(source);
+        let chunk = compiler.compile().unwrap().chunk;
+        let expected_chunk = Chunk {
+            code: vec![
+                OpCode::Constant as u8,
+                0,
+                OpCode::Constant as u8,
+                1,
+                OpCode::Equal as u8,
+                OpCode::Not as u8,
+                OpCode::Pop as u8,
+                OpCode::Nil as u8,
+                OpCode::Return as u8,
+            ],
+            lines: vec![1; 9],
+            constants: vec![1.0.into(), 2.0.into()],
+        };
+        assert_eq!(chunk, expected_chunk);
+    }
+
+    #[test]
     fn it_compiles_an_and_expression() {
         let source = "true and false;".into();
         let compiler = Compiler::new(source);
