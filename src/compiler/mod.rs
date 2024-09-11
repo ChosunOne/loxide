@@ -3145,7 +3145,7 @@ mod test {
     }
 
     #[test]
-    fn it_handles_an_error_self_inheritanct() {
+    fn it_handles_an_error_self_inheritance() {
         let source = "class Self < Self {}".into();
         let compiler = Compiler::new(source);
         let result = compiler.compile();
