@@ -3079,4 +3079,76 @@ mod test {
         };
         assert_eq!(chunk, expected_chunk);
     }
+
+    #[test]
+    fn it_handles_a_syntax_error_in_statement() {
+        let source = "1 2".into();
+        let compiler = Compiler::new(source);
+        let result = compiler.compile();
+        assert!(result.is_err_and(|e| { e == Error::Compile }));
+    }
+
+    #[test]
+    fn it_handles_a_syntax_error_in_var_statement() {
+        let source = "var a =".into();
+        let compiler = Compiler::new(source);
+        let result = compiler.compile();
+        assert!(result.is_err_and(|e| { e == Error::Compile }));
+    }
+
+    #[test]
+    fn it_handles_an_error_self_var_initialization() {
+        let source = "{ var a = a; }".into();
+        let compiler = Compiler::new(source);
+        let result = compiler.compile();
+        assert!(result.is_err_and(|e| { e == Error::Compile }));
+    }
+
+    #[test]
+    fn it_handles_an_error_return_outside_class() {
+        let source = "return 1;".into();
+        let compiler = Compiler::new(source);
+        let result = compiler.compile();
+        assert!(result.is_err_and(|e| { e == Error::Compile }));
+    }
+
+    #[test]
+    fn it_handles_an_error_this_outside_method() {
+        let source = "{ var a = this.b; }".into();
+        let compiler = Compiler::new(source);
+        let result = compiler.compile();
+        assert!(result.is_err_and(|e| { e == Error::Compile }));
+    }
+
+    #[test]
+    fn it_handles_an_error_reassign_local_variable() {
+        let source = "{ var a = 0; var a = 1; }".into();
+        let compiler = Compiler::new(source);
+        let result = compiler.compile();
+        assert!(result.is_err_and(|e| { e == Error::Compile }));
+    }
+
+    #[test]
+    fn it_handles_an_error_super_outside_class() {
+        let source = "{ var a = super.b; }".into();
+        let compiler = Compiler::new(source);
+        let result = compiler.compile();
+        assert!(result.is_err_and(|e| { e == Error::Compile }));
+    }
+
+    #[test]
+    fn it_handles_an_error_super_outside_method_with_super_class() {
+        let source = "class NoSuper { m() { return super.m(); } }".into();
+        let compiler = Compiler::new(source);
+        let result = compiler.compile();
+        assert!(result.is_err_and(|e| { e == Error::Compile }));
+    }
+
+    #[test]
+    fn it_handles_an_error_self_inheritanct() {
+        let source = "class Self < Self {}".into();
+        let compiler = Compiler::new(source);
+        let result = compiler.compile();
+        assert!(result.is_err_and(|e| { e == Error::Compile }));
+    }
 }
