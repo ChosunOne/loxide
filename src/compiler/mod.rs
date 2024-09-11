@@ -1051,6 +1051,7 @@ impl Compiler {
                 self.expression(BindingPower::AssignmentRight);
                 if arg_count == 255 {
                     self.error("Can't have more than 255 arguments.");
+                    break;
                 }
                 arg_count += 1;
                 if !self.advance_if_eq(TokenType::Comma) {
@@ -3153,7 +3154,7 @@ mod test {
     }
 
     #[test]
-    fn it_handles_too_many_constants_in_function() {
+    fn it_handles_an_error_too_many_constants_in_function() {
         let mut source = "fun foo() {".to_owned();
         for i in 0..300 {
             source += &format!("var a{i};\n");
@@ -3166,13 +3167,57 @@ mod test {
     }
 
     #[test]
-    fn it_handles_too_many_parameters_in_function() {
+    fn it_handles_an_error_too_many_parameters_in_function() {
         let mut source = "fun foo(".to_owned();
         for i in 0..300 {
             source += &format!("a{i}, ");
         }
         source += ") {}";
 
+        let compiler = Compiler::new(source);
+        let result = compiler.compile();
+        assert!(result.is_err_and(|e| { e == Error::Compile }));
+    }
+
+    #[test]
+    fn it_handls_an_error_too_many_constants_in_one_chunk() {
+        let mut source = "fun foo() {} foo(".to_owned();
+        for i in 0..300 {
+            source += &format!("a{i},");
+        }
+        source += ");";
+        let compiler = Compiler::new(source);
+        let result = compiler.compile();
+        assert!(result.is_err_and(|e| { e == Error::Compile }));
+    }
+
+    #[test]
+    fn it_handles_an_error_initializer_return() {
+        let source = "class Test { init { return 0; } } ".into();
+        let compiler = Compiler::new(source);
+        let result = compiler.compile();
+        assert!(result.is_err_and(|e| { e == Error::Compile }));
+    }
+
+    #[test]
+    fn it_handles_an_error_jump_too_large() {
+        let mut source = "if (true) { var a = 1; ".to_owned();
+        for _ in 0..22000 {
+            source += "print a;";
+        }
+        source += "} else {}";
+        let compiler = Compiler::new(source);
+        let result = compiler.compile();
+        assert!(result.is_err_and(|e| { e == Error::Compile }));
+    }
+
+    #[test]
+    fn it_handles_an_error_loop_too_large() {
+        let mut source = "while (true) { var a = 1; ".to_owned();
+        for _ in 0..22000 {
+            source += "print a;";
+        }
+        source += "}";
         let compiler = Compiler::new(source);
         let result = compiler.compile();
         assert!(result.is_err_and(|e| { e == Error::Compile }));
