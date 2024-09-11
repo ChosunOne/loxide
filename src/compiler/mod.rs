@@ -3151,4 +3151,30 @@ mod test {
         let result = compiler.compile();
         assert!(result.is_err_and(|e| { e == Error::Compile }));
     }
+
+    #[test]
+    fn it_handles_too_many_constants_in_function() {
+        let mut source = "fun foo() {".to_owned();
+        for i in 0..300 {
+            source += &format!("var a{i};\n");
+        }
+        source += "}";
+
+        let compiler = Compiler::new(source);
+        let result = compiler.compile();
+        assert!(result.is_err_and(|e| { e == Error::Compile }));
+    }
+
+    #[test]
+    fn it_handles_too_many_parameters_in_function() {
+        let mut source = "fun foo(".to_owned();
+        for i in 0..300 {
+            source += &format!("a{i}, ");
+        }
+        source += ") {}";
+
+        let compiler = Compiler::new(source);
+        let result = compiler.compile();
+        assert!(result.is_err_and(|e| { e == Error::Compile }));
+    }
 }
