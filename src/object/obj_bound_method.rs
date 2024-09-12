@@ -1,6 +1,6 @@
 use crate::{
     object::{Obj, ObjClosure},
-    value::Value,
+    value::RuntimeValue,
 };
 
 use std::{fmt::Display, rc::Rc};
@@ -8,7 +8,7 @@ use std::{fmt::Display, rc::Rc};
 #[derive(Debug, Clone, PartialEq)]
 pub struct ObjBoundMethod {
     pub obj: Obj,
-    pub receiver: Value,
+    pub receiver: RuntimeValue,
     pub method: Rc<ObjClosure>,
 }
 

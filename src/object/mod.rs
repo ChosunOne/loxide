@@ -56,7 +56,7 @@ pub struct Obj {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{chunk::Chunk, value::Value};
+    use crate::{chunk::Chunk, value::RuntimeValue};
     use std::collections::HashMap;
 
     #[test]
@@ -105,27 +105,22 @@ mod test {
 
     #[test]
     fn i_can_make_native_function_objects() {
-        let native_fn_closure = |_: Vec<Value>| Value::Nil;
+        let native_fn_closure = |_: Vec<RuntimeValue>| RuntimeValue::Nil;
         let native_fn = ObjNative {
             obj: Obj { next: None },
             function: native_fn_closure,
         };
         assert!(native_fn.obj.next.is_none());
-        assert_eq!((native_fn.function)(vec![]), Value::Nil);
+        assert_eq!((native_fn.function)(vec![]), RuntimeValue::Nil);
     }
 
     #[test]
     fn it_prints_objects_correctly() {
-        let function_name = Rc::new(ObjString {
-            obj: Obj::default(),
-            chars: "function_name".into(),
-        });
         let function = Rc::new(ObjFunction {
-            obj: Obj::default(),
             arity: 0,
             chunk: Chunk::default(),
             upvalue_count: 0,
-            name: Some(Rc::clone(&function_name)),
+            name: Some("function_name".into()),
         });
         let closure = Rc::new(ObjClosure {
             obj: Obj::default(),
@@ -134,7 +129,7 @@ mod test {
         });
         let bound_method = Rc::new(Object::BoundMethod(ObjBoundMethod {
             obj: Obj::default(),
-            receiver: Value::Nil,
+            receiver: RuntimeValue::Nil,
             method: Rc::clone(&closure),
         }));
         let class_name = Rc::new(ObjString {
@@ -148,19 +143,18 @@ mod test {
         });
         let native_fn = Rc::new(Object::Native(ObjNative {
             obj: Obj::default(),
-            function: |_| Value::Nil,
+            function: |_| RuntimeValue::Nil,
         }));
         let upvalue = Object::UpValue(ObjUpvalue {
             obj: Obj::default(),
-            location: Rc::new(Value::Nil),
-            closed: Value::Nil,
+            location: Rc::new(RuntimeValue::Nil),
+            closed: RuntimeValue::Nil,
             next: None,
         });
 
         let bound_method_display = format!("{bound_method}");
         let closure_display = format!("{closure}");
         let function_display = format!("{function}");
-        let function_name_display = format!("{function_name}");
         let class_display = format!("{class}");
         let native_display = format!("{native_fn}");
         let upvalue_display = format!("{upvalue}");
@@ -168,7 +162,6 @@ mod test {
         assert_eq!(bound_method_display, "<fn function_name>");
         assert_eq!(closure_display, "<fn function_name>");
         assert_eq!(function_display, "<fn function_name>");
-        assert_eq!(function_name_display, "function_name");
         assert_eq!(class_display, "ClassName");
         assert_eq!(native_display, "<native fn>");
         assert_eq!(upvalue_display, "upvalue");

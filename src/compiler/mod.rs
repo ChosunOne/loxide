@@ -12,7 +12,7 @@ use crate::{
     object::obj_function::ObjFunction,
     scanner::Scanner,
     token::{Token, TokenType},
-    value::Value,
+    value::ConstantValue,
 };
 use std::iter::Peekable;
 
@@ -158,13 +158,13 @@ impl Compiler {
         self.emit_byte(offset[0]);
     }
 
-    fn emit_constant(&mut self, value: Value) {
+    fn emit_constant(&mut self, value: ConstantValue) {
         self.emit_opcode(OpCode::Constant);
         let constant = self.make_constant(value);
         self.emit_byte(constant);
     }
 
-    fn make_constant(&mut self, value: Value) -> u8 {
+    fn make_constant(&mut self, value: ConstantValue) -> u8 {
         let constant = self.current_chunk().add_constant(value);
         if constant > u8::MAX as usize {
             self.error("Too many constants in one chunk.");
@@ -365,7 +365,7 @@ impl Compiler {
     }
 
     fn identifier_constant(&mut self, name: Token) -> u8 {
-        self.make_constant(Value::from(name.lexeme))
+        self.make_constant(ConstantValue::from(name.lexeme))
     }
 
     fn parse_variable(&mut self, error_message: &str) -> u8 {
@@ -764,7 +764,7 @@ impl Compiler {
         self.emit_return();
         let context = self.pop_context();
         let upvalues = &context.upvalues[..context.function.upvalue_count];
-        let constant = self.make_constant(Value::from(context.function));
+        let constant = self.make_constant(ConstantValue::from(context.function));
         self.emit_opcode(OpCode::Closure);
         self.emit_byte(constant);
         for upvalue in upvalues {
@@ -901,12 +901,12 @@ impl Compiler {
             .lexeme
             .parse()
             .expect("ICE: Failed to parse number.");
-        let value = Value::Number(num);
+        let value = ConstantValue::Number(num);
         self.emit_constant(value);
     }
 
     fn string(&mut self) {
-        let value = Value::from(self.previous().lexeme.clone());
+        let value = ConstantValue::from(self.previous().lexeme.clone());
         self.emit_constant(value);
     }
 
@@ -1067,10 +1067,6 @@ impl Compiler {
 
 #[cfg(test)]
 mod test {
-    use std::rc::Rc;
-
-    use crate::object::{Obj, ObjString, Object};
-
     use super::*;
 
     #[test]
@@ -1127,10 +1123,7 @@ mod test {
         let function = compiler.compile().unwrap();
         let chunk = function.chunk;
         let empty_function_value = &chunk.constants[1];
-        let Value::Object(b) = empty_function_value else {
-            panic!("Failed to get function from chunk.");
-        };
-        let Object::Function(f) = &**b else {
+        let ConstantValue::Function(f) = empty_function_value else {
             panic!("Failed to get function from chunk.");
         };
         let empty_function_chunk = &f.chunk;
@@ -1149,9 +1142,8 @@ mod test {
 
         let expected_function_constants = [];
         let expected_constants = [
-            Value::from("foo"),
-            Value::from(ObjFunction {
-                obj: Obj::default(),
+            ConstantValue::from("foo"),
+            ConstantValue::from(ObjFunction {
                 arity: 0,
                 upvalue_count: 0,
                 chunk: Chunk {
@@ -1159,10 +1151,7 @@ mod test {
                     lines: expected_function_lines.into(),
                     constants: expected_function_constants.clone().into(),
                 },
-                name: Some(Rc::new(ObjString {
-                    obj: Obj::default(),
-                    chars: "foo".into(),
-                })),
+                name: Some("foo".into()),
             }),
         ];
 
@@ -1230,7 +1219,7 @@ mod test {
             OpCode::Return as u8,
         ];
         let expected_lines = [1; 5];
-        let expected_constants = [Value::from(123.456)];
+        let expected_constants = [ConstantValue::from(123.456)];
 
         assert_eq!(chunk.code.len(), 5);
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
@@ -1345,7 +1334,7 @@ mod test {
             OpCode::Return as u8,
         ];
         let expected_lines = [1; 5];
-        let expected_constants = [Value::from("hello lox")];
+        let expected_constants = [ConstantValue::from("hello lox")];
 
         assert_eq!(chunk.code.len(), 5);
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
@@ -1380,7 +1369,7 @@ mod test {
             OpCode::Return as u8,
         ];
         let expected_lines = [1; 9];
-        let expected_constants = [Value::from(1.0)];
+        let expected_constants = [ConstantValue::from(1.0)];
 
         assert_eq!(chunk.code.len(), expected_codes.len());
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
@@ -1415,7 +1404,7 @@ mod test {
             OpCode::Return as u8,
         ];
         let expected_lines = [1; 8];
-        let expected_constants = [Value::from(1.0), Value::from(2.0)];
+        let expected_constants = [ConstantValue::from(1.0), ConstantValue::from(2.0)];
 
         assert_eq!(chunk.code.len(), expected_codes.len());
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
@@ -1450,7 +1439,7 @@ mod test {
             OpCode::Return as u8,
         ];
         let expected_lines = [1; 8];
-        let expected_constants = [Value::from(1.0), Value::from(2.0)];
+        let expected_constants = [1.0.into(), 2.0.into()];
 
         assert_eq!(chunk.code.len(), expected_codes.len());
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
@@ -1485,7 +1474,7 @@ mod test {
             OpCode::Return as u8,
         ];
         let expected_lines = [1; 8];
-        let expected_constants = [Value::from(1.0), Value::from(2.0)];
+        let expected_constants = [1.0.into(), 2.0.into()];
 
         assert_eq!(chunk.code.len(), expected_codes.len());
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
@@ -1520,7 +1509,7 @@ mod test {
             OpCode::Return as u8,
         ];
         let expected_lines = [1; 8];
-        let expected_constants = [Value::from(1.0), Value::from(2.0)];
+        let expected_constants = [1.0.into(), 2.0.into()];
 
         assert_eq!(chunk.code.len(), expected_codes.len());
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
@@ -1555,7 +1544,7 @@ mod test {
             OpCode::Return as u8,
         ];
         let expected_lines = [1; 8];
-        let expected_constants = [Value::from(1.0), Value::from(2.0)];
+        let expected_constants = [1.0.into(), 2.0.into()];
 
         assert_eq!(chunk.code.len(), expected_codes.len());
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
@@ -1590,7 +1579,7 @@ mod test {
             OpCode::Return as u8,
         ];
         let expected_lines = [1; 8];
-        let expected_constants = [Value::from(1.0), Value::from(2.0)];
+        let expected_constants = [1.0.into(), 2.0.into()];
 
         assert_eq!(chunk.code.len(), expected_codes.len());
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
@@ -1625,7 +1614,7 @@ mod test {
             OpCode::Return as u8,
         ];
         let expected_lines = [1; 8];
-        let expected_constants = [Value::from(1.0), Value::from(2.0)];
+        let expected_constants = [1.0.into(), 2.0.into()];
 
         assert_eq!(chunk.code.len(), expected_codes.len());
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
@@ -1661,7 +1650,7 @@ mod test {
             OpCode::Return as u8,
         ];
         let expected_lines = [1; 9];
-        let expected_constants = [Value::from(1.0), Value::from(2.0)];
+        let expected_constants = [1.0.into(), 2.0.into()];
 
         assert_eq!(chunk.code.len(), expected_codes.len());
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
@@ -1697,7 +1686,7 @@ mod test {
             OpCode::Return as u8,
         ];
         let expected_lines = [1; 9];
-        let expected_constants = [Value::from(1.0), Value::from(2.0)];
+        let expected_constants = [1.0.into(), 2.0.into()];
 
         assert_eq!(chunk.code.len(), expected_codes.len());
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
@@ -1867,16 +1856,16 @@ mod test {
         ];
         let expected_lines = [1; 44];
         let expected_constants = [
-            Value::from(1.0),
-            Value::from(2.0),
-            Value::from(3.0),
-            Value::from(4.0),
-            Value::from(5.0),
-            Value::from(6.0),
-            Value::from(7.0),
-            Value::from(8.0),
-            Value::from(9.0),
-            Value::from(10.0),
+            1.0.into(),
+            2.0.into(),
+            3.0.into(),
+            4.0.into(),
+            5.0.into(),
+            6.0.into(),
+            7.0.into(),
+            8.0.into(),
+            9.0.into(),
+            10.0.into(),
         ];
 
         assert_eq!(chunk.code.len(), expected_codes.len());
@@ -1909,7 +1898,7 @@ mod test {
             OpCode::Return as u8,
         ];
         let expected_lines = [1; 5];
-        let expected_constants = [Value::from("a")];
+        let expected_constants = ["a".into()];
 
         assert_eq!(chunk.code.len(), expected_codes.len());
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
@@ -1942,7 +1931,7 @@ mod test {
             OpCode::Return as u8,
         ];
         let expected_lines = [1; 6];
-        let expected_constants = [Value::from("a"), Value::from(1.0)];
+        let expected_constants = ["a".into(), 1.0.into()];
 
         assert_eq!(chunk.code.len(), expected_codes.len());
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
@@ -1978,7 +1967,7 @@ mod test {
             OpCode::Return as u8,
         ];
         let expected_lines = [1; 9];
-        let expected_constants = [Value::from("a"), Value::from(1.0), Value::from("a")];
+        let expected_constants = ["a".into(), 1.0.into(), "a".into()];
 
         assert_eq!(chunk.code.len(), expected_codes.len());
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
@@ -2043,7 +2032,7 @@ mod test {
         ];
 
         let expected_lines = [1; 5];
-        let expected_constants = [Value::from(1.0)];
+        let expected_constants = [1.0.into()];
 
         assert_eq!(chunk.code.len(), expected_codes.len());
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
@@ -2084,7 +2073,7 @@ mod test {
         ];
 
         let expected_lines = [1; 13];
-        let expected_constants = [Value::from(1.0), Value::from(1.0)];
+        let expected_constants = [1.0.into(), 1.0.into()];
 
         assert_eq!(chunk.code.len(), expected_codes.len());
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
@@ -2126,13 +2115,7 @@ mod test {
         ];
 
         let expected_lines = [1; 14];
-        let expected_constants = [
-            Value::from("a"),
-            Value::from(1.0),
-            Value::from("a"),
-            Value::from("a"),
-            Value::from(1.0),
-        ];
+        let expected_constants = ["a".into(), 1.0.into(), "a".into(), "a".into(), 1.0.into()];
 
         assert_eq!(chunk.code.len(), expected_codes.len());
         for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
@@ -2189,20 +2172,16 @@ mod test {
             ],
             lines: vec![1; 15],
             constants: vec![
-                Value::from("foo"),
-                Value::from(ObjFunction {
-                    obj: Obj::default(),
+                "foo".into(),
+                ConstantValue::from(ObjFunction {
                     arity: 2,
                     upvalue_count: 0,
                     chunk: expected_function_chunk,
-                    name: Some(Rc::new(ObjString {
-                        obj: Obj::default(),
-                        chars: "foo".into(),
-                    })),
+                    name: Some("foo".into()),
                 }),
-                Value::from("foo"),
-                Value::from(1.0),
-                Value::from(2.0),
+                "foo".into(),
+                1.0.into(),
+                2.0.into(),
             ],
         };
         println!(
@@ -2251,16 +2230,13 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 13],
-            constants: vec![Value::from(ObjFunction {
-                obj: Obj::default(),
+            constants: vec![ObjFunction {
                 arity: 0,
                 upvalue_count: 2,
                 chunk: expected_bar_chunk,
-                name: Some(Rc::new(ObjString {
-                    obj: Obj::default(),
-                    chars: "bar".into(),
-                })),
-            })],
+                name: Some("bar".into()),
+            }
+            .into()],
         };
         let expected_chunk = Chunk {
             code: vec![
@@ -2282,33 +2258,24 @@ mod test {
             ],
             lines: vec![1; 15],
             constants: vec![
-                Value::from("foo"),
-                Value::from(ObjFunction {
-                    obj: Obj::default(),
+                "foo".into(),
+                ObjFunction {
                     arity: 2,
                     upvalue_count: 0,
                     chunk: expected_foo_chunk,
-                    name: Some(Rc::new(ObjString {
-                        obj: Obj::default(),
-                        chars: "foo".into(),
-                    })),
-                }),
-                Value::from("foo"),
-                Value::from(1.0),
-                Value::from(2.0),
+                    name: Some("foo".into()),
+                }
+                .into(),
+                "foo".into(),
+                1.0.into(),
+                2.0.into(),
             ],
         };
-        let Value::Object(o) = &chunk.constants[1] else {
-            panic!("Failed to read foo chunk.");
-        };
-        let Object::Function(foo) = &**o else {
+        let ConstantValue::Function(foo) = &chunk.constants[1] else {
             panic!("Failed to read foo chunk.");
         };
 
-        let Value::Object(o) = &foo.chunk.constants[0] else {
-            panic!("Failed to read bar chunk.");
-        };
-        let Object::Function(bar) = &**o else {
+        let ConstantValue::Function(bar) = &foo.chunk.constants[0] else {
             panic!("Failed to read bar chunk.");
         };
         println!("{}", bar.chunk);
@@ -2362,16 +2329,16 @@ mod test {
             ],
             lines: vec![1; 35],
             constants: vec![
-                Value::from("a"),
-                Value::from(0.0),
-                Value::from("a"),
-                Value::from(0.0),
-                Value::from("a"),
-                Value::from("a"),
-                Value::from(1.0),
-                Value::from("a"),
-                Value::from("a"),
-                Value::from(1.0),
+                "a".into(),
+                0.0.into(),
+                "a".into(),
+                0.0.into(),
+                "a".into(),
+                "a".into(),
+                1.0.into(),
+                "a".into(),
+                "a".into(),
+                1.0.into(),
             ],
         };
         assert_eq!(chunk, expected_chunk);
@@ -2421,12 +2388,7 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 35],
-            constants: vec![
-                Value::from(0.0),
-                Value::from(5.0),
-                Value::from(1.0),
-                Value::from("for loop"),
-            ],
+            constants: vec![0.0.into(), 5.0.into(), 1.0.into(), "for loop".into()],
         };
         assert_eq!(chunk, expected_chunk);
     }
@@ -2471,14 +2433,14 @@ mod test {
             ],
             lines: vec![1; 30],
             constants: vec![
-                Value::from("a"),
-                Value::from(0.0),
-                Value::from("a"),
-                Value::from(5.0),
-                Value::from("while loop"),
-                Value::from("a"),
-                Value::from("a"),
-                Value::from(1.0),
+                "a".into(),
+                0.0.into(),
+                "a".into(),
+                5.0.into(),
+                "while loop".into(),
+                "a".into(),
+                "a".into(),
+                1.0.into(),
             ],
         };
         assert_eq!(chunk, expected_chunk);
@@ -2502,7 +2464,7 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 9],
-            constants: vec![Value::from("TestClass"), Value::from("TestClass")],
+            constants: vec!["TestClass".into(), "TestClass".into()],
         };
         assert_eq!(chunk, expected_chunk);
     }
@@ -2536,19 +2498,16 @@ mod test {
             ],
             lines: vec![1; 13],
             constants: vec![
-                Value::from("TestClass"),
-                Value::from("TestClass"),
-                Value::from("init"),
-                Value::from(ObjFunction {
-                    obj: Obj::default(),
+                "TestClass".into(),
+                "TestClass".into(),
+                "init".into(),
+                ObjFunction {
                     arity: 0,
                     upvalue_count: 0,
                     chunk: expected_init_chunk,
-                    name: Some(Rc::new(ObjString {
-                        obj: Obj::default(),
-                        chars: "init".into(),
-                    })),
-                }),
+                    name: Some("init".into()),
+                }
+                .into(),
             ],
         };
         assert_eq!(chunk, expected_chunk);
@@ -2586,13 +2545,7 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 22],
-            constants: vec![
-                Value::from("a"),
-                Value::from(1.0),
-                Value::from("b"),
-                Value::from("a"),
-                Value::from(2.0),
-            ],
+            constants: vec!["a".into(), 1.0.into(), "b".into(), "a".into(), 2.0.into()],
         };
         let expected_chunk = Chunk {
             code: vec![
@@ -2612,25 +2565,19 @@ mod test {
             ],
             lines: vec![1; 13],
             constants: vec![
-                Value::from("TestClass"),
-                Value::from("TestClass"),
-                Value::from("init"),
-                Value::from(ObjFunction {
-                    obj: Obj::default(),
+                "TestClass".into(),
+                "TestClass".into(),
+                "init".into(),
+                ObjFunction {
                     arity: 0,
                     upvalue_count: 0,
                     chunk: expected_init_chunk,
-                    name: Some(Rc::new(ObjString {
-                        obj: Obj::default(),
-                        chars: "init".into(),
-                    })),
-                }),
+                    name: Some("init".into()),
+                }
+                .into(),
             ],
         };
-        let Value::Object(o) = &chunk.constants[3] else {
-            panic!("Failed to get init chunk");
-        };
-        let Object::Function(init) = &**o else {
+        let ConstantValue::Function(init) = &chunk.constants[3] else {
             panic!("Failed to get init chunk");
         };
         println!("{}", init.chunk);
@@ -2662,20 +2609,20 @@ mod test {
             ],
             lines: vec![1; 13],
             constants: vec![
-                Value::from("TestClass"),
-                Value::from("TestClass"),
-                Value::from("m"),
-                Value::from(ObjFunction {
-                    obj: Obj::default(),
+                "TestClass".into(),
+                "TestClass".into(),
+                "m".into(),
+                ObjFunction {
                     arity: 0,
                     upvalue_count: 0,
-                    name: Some(Rc::new(ObjString::from("m"))),
+                    name: Some("m".into()),
                     chunk: Chunk {
                         code: vec![OpCode::Nil as u8, OpCode::Return as u8],
                         lines: vec![1; 2],
                         constants: vec![],
                     },
-                }),
+                }
+                .into(),
             ],
         };
         assert_eq!(chunk, expected_chunk);
@@ -2700,7 +2647,7 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 10],
-            constants: vec![Value::from("a")],
+            constants: vec!["a".into()],
         };
         let expected_m_chunk = Chunk {
             code: vec![
@@ -2713,7 +2660,7 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 7],
-            constants: vec![Value::from("a")],
+            constants: vec!["a".into()],
         };
         let expected_chunk = Chunk {
             code: vec![
@@ -2749,28 +2696,28 @@ mod test {
             ],
             lines: vec![1; 29],
             constants: vec![
-                Value::from("TestClass"),
-                Value::from("TestClass"),
-                Value::from("init"),
-                Value::from(ObjFunction {
-                    obj: Obj::default(),
+                "TestClass".into(),
+                "TestClass".into(),
+                "init".into(),
+                ObjFunction {
                     arity: 1,
                     upvalue_count: 0,
                     chunk: expected_init_chunk,
-                    name: Some(Rc::new(ObjString::from("init"))),
-                }),
-                Value::from("m"),
-                Value::from(ObjFunction {
-                    obj: Obj::default(),
+                    name: Some("init".into()),
+                }
+                .into(),
+                "m".into(),
+                ObjFunction {
                     arity: 0,
                     upvalue_count: 0,
                     chunk: expected_m_chunk,
-                    name: Some(Rc::new(ObjString::from("m"))),
-                }),
-                Value::from("c"),
-                Value::from("TestClass"),
-                Value::from("c"),
-                Value::from("m"),
+                    name: Some("m".into()),
+                }
+                .into(),
+                "c".into(),
+                "TestClass".into(),
+                "c".into(),
+                "m".into(),
             ],
         };
         assert_eq!(chunk, expected_chunk);
@@ -2808,12 +2755,12 @@ mod test {
             ],
             lines: vec![1; 22],
             constants: vec![
-                Value::from("Parent"),
-                Value::from("Parent"),
-                Value::from("Child"),
-                Value::from("Parent"),
-                Value::from("Child"),
-                Value::from("Child"),
+                "Parent".into(),
+                "Parent".into(),
+                "Child".into(),
+                "Parent".into(),
+                "Child".into(),
+                "Child".into(),
             ],
         };
         assert_eq!(chunk, expected_chunk);
@@ -2836,7 +2783,7 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 5],
-            constants: vec![Value::from(1.0)],
+            constants: vec![1.0.into()],
         };
 
         let expected_init_chunk = Chunk {
@@ -2853,7 +2800,7 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 10],
-            constants: vec![Value::from("a"), Value::from(2.0)],
+            constants: vec!["a".into(), 2.0.into()],
         };
 
         let expected_m_chunk = Chunk {
@@ -2875,7 +2822,7 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 15],
-            constants: vec![Value::from("m"), Value::from("a")],
+            constants: vec!["m".into(), "a".into()],
         };
 
         let expected_chunk = Chunk {
@@ -2919,36 +2866,36 @@ mod test {
             ],
             lines: vec![1; 36],
             constants: vec![
-                Value::from("Parent"),
-                Value::from("Parent"),
-                Value::from("m"),
-                Value::from(ObjFunction {
-                    obj: Obj::default(),
+                "Parent".into(),
+                "Parent".into(),
+                "m".into(),
+                ObjFunction {
                     arity: 0,
                     upvalue_count: 0,
                     chunk: expected_super_m_chunk,
-                    name: Some(Rc::new(ObjString::from("m"))),
-                }),
-                Value::from("Child"),
-                Value::from("Parent"),
-                Value::from("Child"),
-                Value::from("Child"),
-                Value::from("init"),
-                Value::from(ObjFunction {
-                    obj: Obj::default(),
+                    name: Some("m".into()),
+                }
+                .into(),
+                "Child".into(),
+                "Parent".into(),
+                "Child".into(),
+                "Child".into(),
+                "init".into(),
+                ObjFunction {
                     arity: 0,
                     upvalue_count: 0,
                     chunk: expected_init_chunk,
-                    name: Some(Rc::new(ObjString::from("init"))),
-                }),
-                Value::from("m"),
-                Value::from(ObjFunction {
-                    obj: Obj::default(),
+                    name: Some("init".into()),
+                }
+                .into(),
+                "m".into(),
+                ObjFunction {
                     arity: 0,
                     upvalue_count: 1,
                     chunk: expected_m_chunk,
-                    name: Some(Rc::new(ObjString::from("m"))),
-                }),
+                    name: Some("m".into()),
+                }
+                .into(),
             ],
         };
         assert_eq!(chunk, expected_chunk);
@@ -2975,7 +2922,7 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 11],
-            constants: vec![Value::from("a")],
+            constants: vec!["a".into()],
         };
 
         let expected_bar_chunk = Chunk {
@@ -3002,11 +2949,10 @@ mod test {
             constants: vec![
                 3.0.into(),
                 ObjFunction {
-                    obj: Obj::default(),
                     arity: 0,
                     upvalue_count: 2,
                     chunk: expected_baz_chunk,
-                    name: Some(Rc::new(ObjString::from("baz"))),
+                    name: Some("baz".into()),
                 }
                 .into(),
             ],
@@ -3034,11 +2980,10 @@ mod test {
             constants: vec![
                 2.0.into(),
                 ObjFunction {
-                    obj: Obj::default(),
                     arity: 0,
                     upvalue_count: 1,
                     chunk: expected_bar_chunk,
-                    name: Some(Rc::new("bar".into())),
+                    name: Some("bar".into()),
                 }
                 .into(),
             ],
@@ -3068,11 +3013,10 @@ mod test {
                 1.0.into(),
                 "foo".into(),
                 ObjFunction {
-                    obj: Obj::default(),
                     arity: 0,
                     upvalue_count: 0,
                     chunk: expected_foo_chunk,
-                    name: Some(Rc::new("foo".into())),
+                    name: Some("foo".into()),
                 }
                 .into(),
                 "foo".into(),

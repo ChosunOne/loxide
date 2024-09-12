@@ -1,23 +1,19 @@
-use crate::{
-    chunk::Chunk,
-    object::{Obj, ObjString},
-};
-use std::{fmt::Display, rc::Rc};
+use crate::chunk::Chunk;
+use std::fmt::Display;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ObjFunction {
-    pub obj: Obj,
     pub arity: usize,
     pub upvalue_count: usize,
     pub chunk: Chunk,
-    pub name: Option<Rc<ObjString>>,
+    pub name: Option<String>,
 }
 
 impl Display for ObjFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.name.is_none() {
-            return write!(f, "<script>");
+        match &self.name {
+            None => write!(f, "<script>"),
+            Some(s) => write!(f, "<fn {s}>"),
         }
-        write!(f, "<fn {}>", self.name.as_ref().unwrap().chars)
     }
 }

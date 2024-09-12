@@ -1,7 +1,7 @@
-use crate::{object::Obj, value::Value};
+use crate::{object::Obj, value::RuntimeValue};
 use std::fmt::{Debug, Display};
 
-type NativeFn = fn(Vec<Value>) -> Value;
+type NativeFn = fn(Vec<RuntimeValue>) -> RuntimeValue;
 
 #[derive(Clone, PartialEq)]
 pub struct ObjNative {

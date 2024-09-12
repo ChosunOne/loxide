@@ -1,9 +1,9 @@
-use std::{array, rc::Rc};
+use std::array;
 
 use crate::{
     chunk::OpCode,
     compiler::{local::Local, upvalue::Upvalue},
-    object::{Obj, ObjFunction, ObjString},
+    object::ObjFunction,
     token::{Token, TokenType},
 };
 
@@ -36,10 +36,7 @@ impl Context {
 
         let mut function = ObjFunction::default();
         if function_type != FunctionType::Script {
-            function.name = Some(Rc::new(ObjString {
-                obj: Obj::default(),
-                chars: name.unwrap_or("anonymous".into()),
-            }));
+            function.name = name
         }
 
         Self {

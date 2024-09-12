@@ -1,12 +1,12 @@
 use std::fmt::{Display, Error};
 
-use crate::{object::Object, value::Value};
+use crate::value::constant::ConstantValue;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Chunk {
     pub code: Vec<u8>,
     pub lines: Vec<usize>,
-    pub constants: Vec<Value>,
+    pub constants: Vec<ConstantValue>,
 }
 
 impl Chunk {
@@ -15,7 +15,7 @@ impl Chunk {
         self.lines.push(line);
     }
 
-    pub fn add_constant(&mut self, value: Value) -> usize {
+    pub fn add_constant(&mut self, value: ConstantValue) -> usize {
         self.constants.push(value);
         self.constants.len() - 1
     }
@@ -145,10 +145,7 @@ impl Display for Chunk {
                     write!(f, "{:<16}\t{:4}\t", o, constant)?;
                     writeln!(f, "{}", self.constants[constant])?;
                     let function = match &self.constants[constant] {
-                        Value::Object(bo) => match &**bo {
-                            Object::Function(fun) => fun,
-                            _ => panic!("Failed to get function from closure."),
-                        },
+                        ConstantValue::Function(fun) => fun,
                         _ => panic!("Failed to get function from closure."),
                     };
 
@@ -310,9 +307,8 @@ impl Display for OpCode {
 
 #[cfg(test)]
 mod test {
-    use std::rc::Rc;
 
-    use crate::object::{obj_function::ObjFunction, obj_string::ObjString, Obj};
+    use crate::object::obj_function::ObjFunction;
 
     use super::*;
 
@@ -336,7 +332,7 @@ mod test {
             chunk.write(0, 1);
         }
 
-        chunk.add_constant(Value::Number(1.0));
+        chunk.add_constant(1.0.into());
         let chunk_display = format!("{chunk}");
         assert_eq!(&chunk_display, "0000\t   1\tOP_CONSTANT\t   0\t'1'\n0002\t    |\tOP_GET_GLOBAL\t   0\t'1'\n0004\t    |\tOP_SET_GLOBAL\t   0\t'1'\n0006\t    |\tOP_DEFINE_GLOBAL\t   0\t'1'\n0008\t    |\tOP_GET_PROPERTY\t   0\t'1'\n000a\t    |\tOP_SET_PROPERTY\t   0\t'1'\n000c\t    |\tOP_GET_SUPER\t   0\t'1'\n000e\t    |\tOP_CLASS\t   0\t'1'\n0010\t    |\tOP_METHOD\t   0\t'1'\n");
     }
@@ -415,7 +411,7 @@ mod test {
         let invoke_ops = [OpCode::Invoke, OpCode::SuperInvoke];
 
         for invoke_op in invoke_ops {
-            chunk.add_constant(Value::Number(0.0));
+            chunk.add_constant(0.0.into());
             chunk.write(invoke_op as u8, 1);
             chunk.write(0u8, 1);
             chunk.write(0u8, 1);
@@ -428,18 +424,14 @@ mod test {
     #[test]
     fn it_prints_closure_ops() {
         let mut chunk = Chunk::default();
-        let function_name = Rc::new(ObjString {
-            obj: Obj::default(),
-            chars: "closure".into(),
-        });
+        let function_name = "closure".into();
         let function = ObjFunction {
-            obj: Obj::default(),
             arity: 0,
             name: Some(function_name),
             chunk: Chunk::default(),
             upvalue_count: 2,
         };
-        chunk.add_constant(Value::Object(Box::new(Object::Function(function))));
+        chunk.add_constant(function.into());
         chunk.write(OpCode::Closure as u8, 1);
         chunk.write(0, 1);
         chunk.write(1, 1); // local value
