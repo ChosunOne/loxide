@@ -1,9 +1,8 @@
-use crate::{object::Obj, value::RuntimeValue};
+use crate::value::RuntimeValue;
 use std::{fmt::Display, rc::Rc};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ObjUpvalue {
-    pub obj: Obj,
     pub location: Rc<RuntimeValue>,
     pub closed: RuntimeValue,
     pub next: Option<Rc<ObjUpvalue>>,

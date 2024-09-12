@@ -1,9 +1,8 @@
-use crate::object::{Obj, ObjFunction, ObjUpvalue};
+use crate::object::{ObjFunction, ObjUpvalue};
 use std::{fmt::Display, rc::Rc};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ObjClosure {
-    pub obj: Obj,
     pub function: Rc<ObjFunction>,
     pub upvalues: Vec<Rc<ObjUpvalue>>,
 }

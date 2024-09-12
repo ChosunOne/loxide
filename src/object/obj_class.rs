@@ -1,9 +1,8 @@
-use crate::object::{Obj, ObjFunction, ObjString};
+use crate::object::{ObjFunction, ObjString};
 use std::{collections::HashMap, fmt::Display, rc::Rc};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ObjClass {
-    pub obj: Obj,
     pub name: Rc<ObjString>,
     pub methods: HashMap<String, Rc<ObjFunction>>,
 }

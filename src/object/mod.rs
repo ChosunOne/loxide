@@ -16,10 +16,7 @@ pub use obj_native::ObjNative;
 pub use obj_string::ObjString;
 pub use obj_upvalue::ObjUpvalue;
 
-use std::{
-    fmt::{Debug, Display},
-    rc::Rc,
-};
+use std::fmt::{Debug, Display};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Object {
@@ -48,69 +45,26 @@ impl Display for Object {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Obj {
-    pub next: Option<Rc<Object>>,
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::{chunk::Chunk, value::RuntimeValue};
-    use std::collections::HashMap;
+    use std::{collections::HashMap, rc::Rc};
 
     #[test]
     fn i_can_make_string_objects() {
-        let string1 = Rc::new(Object::String(ObjString {
-            obj: Obj { next: None },
+        let string = ObjString {
             chars: "String".into(),
-        }));
-        let string2 = Rc::new(Object::String(ObjString {
-            obj: Obj {
-                next: Some(string1),
-            },
-            chars: "String2".into(),
-        }));
-        let mut string3 = Object::String(ObjString {
-            obj: Obj {
-                next: Some(string2),
-            },
-            chars: "String3".into(),
-        });
-
-        if let Object::String(ref mut s) = &mut string3 {
-            match s.obj.next.as_mut() {
-                None => panic!("Failed to find next object"),
-                Some(st) => match Rc::get_mut(st).unwrap() {
-                    Object::String(string) => {
-                        string.obj.next.take();
-                    }
-                    _ => panic!("Found wrong object"),
-                },
-            }
         };
-
-        if let Object::String(ref s) = string3 {
-            match &s.obj.next {
-                None => panic!("Failed to find next object"),
-                Some(st) => match &**st {
-                    Object::String(string) => {
-                        assert_eq!("String2", string.chars);
-                    }
-                    _ => panic!("Found wrong object"),
-                },
-            }
-        }
+        assert_eq!(&string.chars, "String");
     }
 
     #[test]
     fn i_can_make_native_function_objects() {
         let native_fn_closure = |_: Vec<RuntimeValue>| RuntimeValue::Nil;
         let native_fn = ObjNative {
-            obj: Obj { next: None },
             function: native_fn_closure,
         };
-        assert!(native_fn.obj.next.is_none());
         assert_eq!((native_fn.function)(vec![]), RuntimeValue::Nil);
     }
 
@@ -123,30 +77,24 @@ mod test {
             name: Some("function_name".into()),
         });
         let closure = Rc::new(ObjClosure {
-            obj: Obj::default(),
             function: Rc::clone(&function),
             upvalues: vec![],
         });
         let bound_method = Rc::new(Object::BoundMethod(ObjBoundMethod {
-            obj: Obj::default(),
             receiver: RuntimeValue::Nil,
             method: Rc::clone(&closure),
         }));
         let class_name = Rc::new(ObjString {
-            obj: Obj::default(),
             chars: "ClassName".into(),
         });
         let class = Object::Class(ObjClass {
-            obj: Obj::default(),
             name: class_name,
             methods: HashMap::new(),
         });
         let native_fn = Rc::new(Object::Native(ObjNative {
-            obj: Obj::default(),
             function: |_| RuntimeValue::Nil,
         }));
         let upvalue = Object::UpValue(ObjUpvalue {
-            obj: Obj::default(),
             location: Rc::new(RuntimeValue::Nil),
             closed: RuntimeValue::Nil,
             next: None,

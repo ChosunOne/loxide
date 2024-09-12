@@ -1,9 +1,8 @@
-use crate::object::{Obj, ObjClass};
+use crate::object::ObjClass;
 use std::{fmt::Display, rc::Rc};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ObjInstance {
-    pub obj: Obj,
     pub class: Rc<ObjClass>,
 }
 
