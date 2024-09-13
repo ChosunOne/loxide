@@ -1,54 +1,40 @@
 use std::{
-    collections::BTreeMap,
-    ops::{Deref, DerefMut},
+    collections::HashMap,
+    hash::{BuildHasherDefault, Hasher},
+    marker::PhantomData,
     pin::Pin,
 };
 
-use crate::value::RuntimeValue;
+use crate::value::{RuntimePointer, RuntimeValue};
 
-pub struct RuntimePointer<'a> {
-    value_store: &'a mut ValueStore,
-    value_ref: *const RuntimeValue,
-}
+#[derive(Default)]
+struct PointerHasher(u64);
 
-impl<'a> RuntimePointer<'a> {
-    pub fn as_raw_ptr(self) -> *const RuntimeValue {
-        self.value_ref
+impl Hasher for PointerHasher {
+    fn finish(&self) -> u64 {
+        self.0
     }
-}
 
-impl<'a> Deref for RuntimePointer<'a> {
-    type Target = RuntimeValue;
-
-    fn deref(&self) -> &Self::Target {
-        self.value_store
-            .get(self.value_ref)
-            .expect("Failed to get value from store")
-    }
-}
-
-impl<'a> DerefMut for RuntimePointer<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.value_store
-            .get_mut(self.value_ref)
-            .expect("Failed to get value from store")
+    fn write(&mut self, bytes: &[u8]) {
+        self.0 = u64::from_ne_bytes(bytes.try_into().unwrap())
     }
 }
 
 #[derive(Default)]
 pub struct ValueStore {
     // This is kind of brilliant ngl
-    map: BTreeMap<*const RuntimeValue, Pin<Box<RuntimeValue>>>,
+    map: HashMap<*const RuntimeValue, Pin<Box<RuntimeValue>>, BuildHasherDefault<PointerHasher>>,
 }
 
 impl ValueStore {
-    pub fn insert(&mut self, value: impl Into<RuntimeValue>) -> RuntimePointer {
+    pub fn insert<T: Into<RuntimeValue>>(&mut self, value: T) -> RuntimePointer<T> {
         let pinned_object = Pin::new(Box::new(value.into()));
         let pinned_reference = &*pinned_object as *const RuntimeValue;
         self.map.insert(pinned_reference, pinned_object);
-        RuntimePointer {
+        RuntimePointer::<T> {
             value_store: self,
             value_ref: pinned_reference,
+            _phantom: PhantomData,
         }
     }
 
@@ -67,49 +53,27 @@ impl ValueStore {
 
 #[cfg(test)]
 mod test {
-    use crate::object::Object;
-
     use super::*;
 
     #[test]
-    fn it_inserts_and_retrieves_values() {
+    fn it_inserts_and_retrieves_strings() {
         let mut value_store = ValueStore::default();
-        let value = "test string value";
+        let value = "test string value".to_owned();
         let value_ref = value_store.insert(value);
         let retrieved_value = &*value_ref;
-        match retrieved_value {
-            RuntimeValue::Object(o) => match &**o {
-                Object::String(s) => assert_eq!(s.chars, "test string value"),
-                o => panic!("Unexpected object: {o}"),
-            },
-            v => panic!("Unexpected value: {v}"),
-        }
+        assert_eq!(retrieved_value, "test string value")
     }
 
     #[test]
-    fn it_gets_a_mutable_value() {
+    fn it_gets_a_mutable_string() {
         let mut value_store = ValueStore::default();
-        let value = "test string value";
+        let value = "test string value".to_owned();
         let mut value_ref = value_store.insert(value);
         {
-            let mutable_value = match &mut *value_ref {
-                RuntimeValue::Object(o) => match &mut **o {
-                    Object::String(s) => &mut s.chars,
-                    o => panic!("Unexpected object: {o}"),
-                },
-                v => panic!("Unexpected value: {v}"),
-            };
-
-            *mutable_value += " mutated";
+            *value_ref += " mutated";
         }
         let retrieved_value = &*value_ref;
-        match retrieved_value {
-            RuntimeValue::Object(o) => match &**o {
-                Object::String(s) => assert_eq!(s.chars, "test string value mutated"),
-                o => panic!("Unexpected object: {o}"),
-            },
-            v => panic!("Unexpected value: {v}"),
-        }
+        assert_eq!(retrieved_value, "test string value mutated")
     }
 
     #[test]
