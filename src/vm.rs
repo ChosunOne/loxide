@@ -38,12 +38,16 @@ impl VM {
         let function = Box::pin(Object::Function(function));
         let function_ref = ObjectReference::from(RuntimeReference::<ObjFunction>::from(&*function));
         self.push_value(function_ref);
-        let closure = self.new_closure();
+        self.object_store.insert_pinned(function);
+        let closure = self.new_closure(function_ref.try_into()?);
 
         todo!();
     }
 
-    fn new_closure(&mut self) -> RuntimeReference<ObjClosure> {
+    fn new_closure(
+        &mut self,
+        function_ref: RuntimeReference<ObjFunction>,
+    ) -> RuntimeReference<ObjClosure> {
         todo!()
     }
 
