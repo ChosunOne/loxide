@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display};
 
 type NativeFn = fn(Vec<RuntimeValue>) -> RuntimeValue;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct ObjNative {
     pub function: NativeFn,
 }

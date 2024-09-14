@@ -1,11 +1,11 @@
-use crate::value::RuntimeValue;
-use std::{fmt::Display, rc::Rc};
+use crate::value::{RuntimeReference, RuntimeValue};
+use std::fmt::Display;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ObjUpvalue {
-    pub location: Rc<RuntimeValue>,
+    pub location: RuntimeReference<RuntimeValue>,
     pub closed: RuntimeValue,
-    pub next: Option<Rc<ObjUpvalue>>,
+    pub next: Option<RuntimeReference<ObjUpvalue>>,
 }
 
 impl Display for ObjUpvalue {

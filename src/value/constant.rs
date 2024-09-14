@@ -1,10 +1,6 @@
 use std::fmt::Display;
 
-use crate::{
-    error::Error,
-    object::{ObjFunction, Object},
-    value::RuntimeValue,
-};
+use crate::{error::Error, object::ObjFunction, value::RuntimeValue};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConstantValue {
@@ -43,10 +39,6 @@ impl TryFrom<RuntimeValue> for ConstantValue {
     fn try_from(value: RuntimeValue) -> Result<Self, Self::Error> {
         match value {
             RuntimeValue::Number(n) => Ok(Self::Number(n)),
-            RuntimeValue::Object(o) => match *o {
-                Object::Function(f) => Ok(Self::Function(Box::new(f))),
-                _ => Err(Error::Runtime),
-            },
             _ => Err(Error::Runtime),
         }
     }
