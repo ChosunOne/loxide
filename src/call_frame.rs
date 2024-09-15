@@ -1,11 +1,11 @@
-use crate::{
-    object::ObjClosure,
-    value::{RuntimeReference, RuntimeValue},
-};
+use crate::{object::ObjClosure, value::RuntimeReference};
 
 #[derive(Debug, Clone)]
 pub struct CallFrame {
+    /// A reference to the currently executing closure
     pub(crate) closure: RuntimeReference<ObjClosure>,
-    pub(crate) ip: u8,
-    pub(crate) slots: Vec<RuntimeValue>,
+    /// The index into the closure's code
+    pub(crate) ip: usize,
+    /// How many stack slots the call frame accesses
+    pub(crate) slots: usize,
 }

@@ -29,9 +29,21 @@ impl From<RuntimeReference<ObjBoundMethod>> for ObjectReference {
     }
 }
 
+impl From<RuntimePointer<'_, ObjBoundMethod>> for ObjectReference {
+    fn from(value: RuntimePointer<'_, ObjBoundMethod>) -> Self {
+        Self::BoundMethod((&value).into())
+    }
+}
+
 impl From<RuntimeReference<ObjClass>> for ObjectReference {
     fn from(value: RuntimeReference<ObjClass>) -> Self {
         Self::Class(value)
+    }
+}
+
+impl From<RuntimePointer<'_, ObjClass>> for ObjectReference {
+    fn from(value: RuntimePointer<'_, ObjClass>) -> Self {
+        Self::Class((&value).into())
     }
 }
 
@@ -41,9 +53,21 @@ impl From<RuntimeReference<ObjClosure>> for ObjectReference {
     }
 }
 
+impl From<RuntimePointer<'_, ObjClosure>> for ObjectReference {
+    fn from(value: RuntimePointer<'_, ObjClosure>) -> Self {
+        Self::Closure((&value).into())
+    }
+}
+
 impl From<RuntimeReference<ObjFunction>> for ObjectReference {
     fn from(value: RuntimeReference<ObjFunction>) -> Self {
         Self::Function(value)
+    }
+}
+
+impl From<RuntimePointer<'_, ObjFunction>> for ObjectReference {
+    fn from(value: RuntimePointer<'_, ObjFunction>) -> Self {
+        Self::Function((&value).into())
     }
 }
 
@@ -53,9 +77,21 @@ impl From<RuntimeReference<ObjInstance>> for ObjectReference {
     }
 }
 
+impl From<RuntimePointer<'_, ObjInstance>> for ObjectReference {
+    fn from(value: RuntimePointer<'_, ObjInstance>) -> Self {
+        Self::Instance((&value).into())
+    }
+}
+
 impl From<RuntimeReference<ObjNative>> for ObjectReference {
     fn from(value: RuntimeReference<ObjNative>) -> Self {
         Self::Native(value)
+    }
+}
+
+impl From<RuntimePointer<'_, ObjNative>> for ObjectReference {
+    fn from(value: RuntimePointer<'_, ObjNative>) -> Self {
+        Self::Native((&value).into())
     }
 }
 
@@ -65,9 +101,21 @@ impl From<RuntimeReference<ObjString>> for ObjectReference {
     }
 }
 
+impl From<RuntimePointer<'_, ObjString>> for ObjectReference {
+    fn from(value: RuntimePointer<'_, ObjString>) -> Self {
+        Self::String((&value).into())
+    }
+}
+
 impl From<RuntimeReference<ObjUpvalue>> for ObjectReference {
     fn from(value: RuntimeReference<ObjUpvalue>) -> Self {
         Self::Upvalue(value)
+    }
+}
+
+impl From<RuntimePointer<'_, ObjUpvalue>> for ObjectReference {
+    fn from(value: RuntimePointer<'_, ObjUpvalue>) -> Self {
+        Self::Upvalue((&value).into())
     }
 }
 

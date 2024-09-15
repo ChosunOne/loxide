@@ -2,13 +2,17 @@ use std::array;
 
 use crate::{
     call_frame::CallFrame,
+    chunk::OpCode,
     compiler::Compiler,
     error::Error,
     object::{
         object_store::GetPointer, ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance,
-        ObjNative, ObjString, ObjUpvalue, Object, ObjectStore,
+        ObjNative, ObjString, Object, ObjectStore,
     },
-    value::{runtime_pointer::ObjectReference, RuntimePointer, RuntimeReference, RuntimeValue},
+    value::{
+        runtime_pointer::ObjectReference, ConstantValue, RuntimePointer, RuntimeReference,
+        RuntimeValue,
+    },
 };
 
 const MAX_FRAMES: usize = 64;
@@ -57,7 +61,7 @@ impl VM {
         let closure = self.new_closure(function_ref.try_into()?);
         self.pop_value();
         self.push_value(closure);
-        self.call(closure, 0);
+        self.call(closure, 0)?;
         self.run()
     }
 
@@ -65,11 +69,120 @@ impl VM {
         todo!()
     }
 
-    fn run(&mut self) -> Result<(), Error> {
-        todo!()
+    fn current_frame(&mut self) -> &mut CallFrame {
+        &mut self.frame_stack[self.frame_stack_top]
     }
 
-    fn call(&mut self, closure: RuntimeReference<ObjClosure>, arg_count: usize) -> bool {
+    fn get_closure_function(
+        &mut self,
+        closure: RuntimeReference<ObjClosure>,
+    ) -> Option<RuntimePointer<'_, ObjFunction>> {
+        let function_ref = self.get_pointer(closure).map(|x| x.function)?;
+        self.get_pointer(function_ref)
+    }
+
+    fn read_byte(&mut self) -> Result<u8, Error> {
+        let closure = self.current_frame().closure;
+        let ip = self.current_frame().ip;
+        let code = self
+            .get_closure_function(closure)
+            .ok_or(Error::Runtime)?
+            .chunk
+            .code[ip];
+
+        self.current_frame().ip += 1;
+        Ok(code)
+    }
+
+    fn read_short(&mut self) -> Result<u16, Error> {
+        let byte_1 = self.read_byte()?;
+        let byte_2 = self.read_byte()?;
+        Ok((byte_1 as u16) << 8 | (byte_2 as u16))
+    }
+
+    fn read_constant(&mut self) -> Result<ConstantValue, Error> {
+        let closure = self.current_frame().closure;
+        let index = self.read_byte()?;
+        Ok(self
+            .get_closure_function(closure)
+            .ok_or(Error::Runtime)?
+            .chunk
+            .constants[index as usize]
+            .clone())
+    }
+
+    fn run(&mut self) -> Result<(), Error> {
+        loop {
+            let instruction = OpCode::from(self.read_byte()?);
+            match instruction {
+                OpCode::Constant => {
+                    let constant = self.read_constant()?;
+                    let runtime_value = match constant {
+                        ConstantValue::Number(n) => RuntimeValue::Number(n),
+                        ConstantValue::String(s) => {
+                            let obj_string = ObjString { chars: s };
+                            ObjectReference::from(self.object_store.insert(obj_string)).into()
+                        }
+                        ConstantValue::Function(f) => {
+                            let obj_function = *f;
+                            ObjectReference::from(self.object_store.insert(obj_function)).into()
+                        }
+                    };
+
+                    self.push_value(runtime_value);
+                }
+                OpCode::Nil => self.push_value(RuntimeValue::Nil),
+                OpCode::True => self.push_value(RuntimeValue::Bool(true)),
+                OpCode::False => self.push_value(RuntimeValue::Bool(false)),
+                OpCode::Pop => {
+                    self.pop_value();
+                }
+                OpCode::GetLocal => {
+                    let slot = self.current_frame().slots - self.read_byte()? as usize;
+                    let value = *self.peek_value(slot).ok_or(Error::Runtime)?;
+                    self.push_value(value);
+                }
+                OpCode::SetLocal => todo!(),
+                OpCode::GetGlobal => todo!(),
+                OpCode::SetGlobal => todo!(),
+                OpCode::DefineGlobal => todo!(),
+                OpCode::GetUpvalue => todo!(),
+                OpCode::SetUpvalue => todo!(),
+                OpCode::GetProperty => todo!(),
+                OpCode::SetProperty => todo!(),
+                OpCode::GetSuper => todo!(),
+                OpCode::Equal => todo!(),
+                OpCode::Greater => todo!(),
+                OpCode::Less => todo!(),
+                OpCode::Add => todo!(),
+                OpCode::Subtract => todo!(),
+                OpCode::Multiply => todo!(),
+                OpCode::Divide => todo!(),
+                OpCode::Not => todo!(),
+                OpCode::Negate => todo!(),
+                OpCode::Print => todo!(),
+                OpCode::Jump => todo!(),
+                OpCode::JumpIfFalse => todo!(),
+                OpCode::Loop => todo!(),
+                OpCode::Call => todo!(),
+                OpCode::Invoke => todo!(),
+                OpCode::SuperInvoke => todo!(),
+                OpCode::Closure => todo!(),
+                OpCode::CloseUpvalue => todo!(),
+                OpCode::Return => todo!(),
+                OpCode::Class => todo!(),
+                OpCode::Inherit => todo!(),
+                OpCode::Method => todo!(),
+                OpCode::Unknown => return Err(Error::Runtime),
+            }
+        }
+    }
+
+    fn call(
+        &mut self,
+        closure: RuntimeReference<ObjClosure>,
+        arg_count: usize,
+    ) -> Result<(), Error> {
         let arity = {
             let function_ref = self
                 .get_pointer(closure)
@@ -84,9 +197,17 @@ impl VM {
                 "Expected {} arguments but got {}.",
                 arity, arg_count
             ));
-            return false;
+            return Err(Error::Runtime);
         }
-        todo!()
+        if self.frame_stack_top == MAX_FRAMES {
+            self.runtime_error("Stack overflow.".into());
+            return Err(Error::Runtime);
+        }
+        let frame = &mut self.frame_stack[self.frame_stack_top];
+        frame.closure = closure;
+        frame.slots = arg_count;
+        self.frame_stack_top += 1;
+        Ok(())
     }
 
     fn new_closure(

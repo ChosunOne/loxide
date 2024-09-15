@@ -77,3 +77,9 @@ impl From<String> for Object {
         Self::String(value.into())
     }
 }
+
+impl From<ObjString> for Object {
+    fn from(value: ObjString) -> Self {
+        Self::String(value)
+    }
+}
