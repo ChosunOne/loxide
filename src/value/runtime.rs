@@ -1,6 +1,9 @@
-use crate::error::Error;
+use crate::{
+    error::Error,
+    object::{ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjNative},
+};
 
-use super::{constant::ConstantValue, runtime_pointer::ObjectReference};
+use super::{constant::ConstantValue, runtime_pointer::ObjectReference, RuntimeReference};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum RuntimeValue {
@@ -26,6 +29,42 @@ impl From<f64> for RuntimeValue {
 impl From<ObjectReference> for RuntimeValue {
     fn from(value: ObjectReference) -> Self {
         Self::Object(value)
+    }
+}
+
+impl From<RuntimeReference<ObjBoundMethod>> for RuntimeValue {
+    fn from(value: RuntimeReference<ObjBoundMethod>) -> Self {
+        Self::Object(value.into())
+    }
+}
+
+impl From<RuntimeReference<ObjClass>> for RuntimeValue {
+    fn from(value: RuntimeReference<ObjClass>) -> Self {
+        Self::Object(value.into())
+    }
+}
+
+impl From<RuntimeReference<ObjClosure>> for RuntimeValue {
+    fn from(value: RuntimeReference<ObjClosure>) -> Self {
+        Self::Object(value.into())
+    }
+}
+
+impl From<RuntimeReference<ObjFunction>> for RuntimeValue {
+    fn from(value: RuntimeReference<ObjFunction>) -> Self {
+        Self::Object(value.into())
+    }
+}
+
+impl From<RuntimeReference<ObjInstance>> for RuntimeValue {
+    fn from(value: RuntimeReference<ObjInstance>) -> Self {
+        Self::Object(value.into())
+    }
+}
+
+impl From<RuntimeReference<ObjNative>> for RuntimeValue {
+    fn from(value: RuntimeReference<ObjNative>) -> Self {
+        Self::Object(value.into())
     }
 }
 

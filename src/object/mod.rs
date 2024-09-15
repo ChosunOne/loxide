@@ -22,12 +22,48 @@ pub use object_store::ObjectStore;
 pub enum Object {
     BoundMethod(ObjBoundMethod),
     Class(ObjClass),
+    Closure(ObjClosure),
     Function(ObjFunction),
     Instance(ObjInstance),
     Native(ObjNative),
     String(ObjString),
     UpValue(ObjUpvalue),
-    Closure(ObjClosure),
+}
+
+impl From<ObjBoundMethod> for Object {
+    fn from(value: ObjBoundMethod) -> Self {
+        Self::BoundMethod(value)
+    }
+}
+
+impl From<ObjClass> for Object {
+    fn from(value: ObjClass) -> Self {
+        Self::Class(value)
+    }
+}
+
+impl From<ObjClosure> for Object {
+    fn from(value: ObjClosure) -> Self {
+        Self::Closure(value)
+    }
+}
+
+impl From<ObjFunction> for Object {
+    fn from(value: ObjFunction) -> Self {
+        Self::Function(value)
+    }
+}
+
+impl From<ObjInstance> for Object {
+    fn from(value: ObjInstance) -> Self {
+        Self::Instance(value)
+    }
+}
+
+impl From<ObjNative> for Object {
+    fn from(value: ObjNative) -> Self {
+        Self::Native(value)
+    }
 }
 
 impl From<&str> for Object {
