@@ -14,6 +14,27 @@ pub enum RuntimeValue {
     Nil,
 }
 
+impl RuntimeValue {
+    pub fn is_falsey(&self) -> bool {
+        match self {
+            Self::Nil => true,
+            Self::Bool(b) => !b,
+            _ => false,
+        }
+    }
+}
+
+impl TryFrom<RuntimeValue> for f64 {
+    type Error = Error;
+
+    fn try_from(value: RuntimeValue) -> Result<Self, Self::Error> {
+        match value {
+            RuntimeValue::Number(n) => Ok(n),
+            _ => Err(Error::Runtime),
+        }
+    }
+}
+
 impl From<bool> for RuntimeValue {
     fn from(value: bool) -> Self {
         Self::Bool(value)

@@ -129,6 +129,10 @@ impl VM {
         todo!()
     }
 
+    fn concatenate(&mut self) -> Result<(), Error> {
+        todo!()
+    }
+
     fn run(&mut self) -> Result<(), Error> {
         loop {
             let instruction = OpCode::from(self.read_byte()?);
@@ -247,17 +251,155 @@ impl VM {
                     self.pop_value(); // Instance
                     self.push_value(value);
                 }
-                OpCode::GetSuper => todo!(),
-                OpCode::Equal => todo!(),
-                OpCode::Greater => todo!(),
-                OpCode::Less => todo!(),
-                OpCode::Add => todo!(),
-                OpCode::Subtract => todo!(),
-                OpCode::Multiply => todo!(),
-                OpCode::Divide => todo!(),
-                OpCode::Not => todo!(),
-                OpCode::Negate => todo!(),
-                OpCode::Print => todo!(),
+                OpCode::GetSuper => {
+                    let name = self.read_string()?;
+                    let superclass = match self.pop_value().ok_or(Error::Runtime)? {
+                        RuntimeValue::Object(ObjectReference::Class(o)) => o,
+                        _ => return Err(Error::Runtime),
+                    };
+                    self.bind_method(superclass, name)?;
+                }
+                OpCode::Equal => {
+                    let a = self.pop_value().ok_or(Error::Runtime)?;
+                    let b = self.pop_value().ok_or(Error::Runtime)?;
+                    self.push_value(a == b);
+                }
+                OpCode::Greater => {
+                    if self.peek_typed::<f64>(0).is_none() || self.peek_typed::<f64>(1).is_none() {
+                        self.runtime_error("Operands must be numbers".into());
+                        return Err(Error::Runtime);
+                    }
+                    let b = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
+                    let a = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
+                    self.push_value(a > b);
+                }
+                OpCode::Less => {
+                    if self.peek_typed::<f64>(0).is_none() || self.peek_typed::<f64>(1).is_none() {
+                        self.runtime_error("Operands must be numbers".into());
+                        return Err(Error::Runtime);
+                    }
+                    let b = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
+                    let a = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
+                    self.push_value(a < b);
+                }
+                OpCode::Add => {
+                    if self.peek_typed::<RuntimeReference<ObjString>>(0).is_some()
+                        && self.peek_typed::<RuntimeReference<ObjString>>(1).is_some()
+                    {
+                        self.concatenate()?;
+                        continue;
+                    }
+
+                    if self.peek_typed::<f64>(0).is_none() || self.peek_typed::<f64>(1).is_none() {
+                        self.runtime_error("Operands must be two numbers or two strings.".into());
+                        return Err(Error::Runtime);
+                    }
+                    let b = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
+                    let a = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
+                    self.push_value(a + b);
+                }
+                OpCode::Subtract => {
+                    if self.peek_typed::<f64>(0).is_none() || self.peek_typed::<f64>(1).is_none() {
+                        self.runtime_error("Operands must be numbers".into());
+                        return Err(Error::Runtime);
+                    }
+                    let b = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
+                    let a = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
+                    self.push_value(a - b);
+                }
+                OpCode::Multiply => {
+                    if self.peek_typed::<f64>(0).is_none() || self.peek_typed::<f64>(1).is_none() {
+                        self.runtime_error("Operands must be numbers".into());
+                        return Err(Error::Runtime);
+                    }
+                    let b = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
+                    let a = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
+                    self.push_value(a * b);
+                }
+                OpCode::Divide => {
+                    if self.peek_typed::<f64>(0).is_none() || self.peek_typed::<f64>(1).is_none() {
+                        self.runtime_error("Operands must be numbers".into());
+                        return Err(Error::Runtime);
+                    }
+                    let b = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
+                    let a = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
+                    self.push_value(a / b);
+                }
+                OpCode::Not => {
+                    let value = self.pop_value().ok_or(Error::Runtime)?;
+                    self.push_value(value.is_falsey());
+                }
+                OpCode::Negate => {
+                    let Some(value) = self.pop_typed::<f64>() else {
+                        self.runtime_error("Operand must be a number.".into());
+                        return Err(Error::Runtime);
+                    };
+                    self.push_value(-value);
+                }
+                OpCode::Print => {
+                    let value = self.pop_value().ok_or(Error::Runtime)?;
+                    match value {
+                        RuntimeValue::Bool(b) => println!("{b}"),
+                        RuntimeValue::Number(n) => println!("{n}"),
+                        RuntimeValue::Object(o) => match o {
+                            ObjectReference::BoundMethod(runtime_reference) => {
+                                let method_ref = self
+                                    .get_pointer(runtime_reference)
+                                    .ok_or(Error::Runtime)?
+                                    .method;
+                                let function_ptr = self
+                                    .get_closure_function(method_ref)
+                                    .ok_or(Error::Runtime)?;
+                                println!("{}", *function_ptr);
+                            }
+                            ObjectReference::Class(runtime_reference) => {
+                                let name_ref = self
+                                    .get_pointer(runtime_reference)
+                                    .ok_or(Error::Runtime)?
+                                    .name;
+                                let name_ptr = self.get_pointer(name_ref).ok_or(Error::Runtime)?;
+                                println!("{}", *name_ptr);
+                            }
+                            ObjectReference::Closure(runtime_reference) => {
+                                let function_ptr = self
+                                    .get_closure_function(runtime_reference)
+                                    .ok_or(Error::Runtime)?;
+                                println!("{}", *function_ptr);
+                            }
+                            ObjectReference::Function(runtime_reference) => {
+                                let function_ptr =
+                                    self.get_pointer(runtime_reference).ok_or(Error::Runtime)?;
+                                println!("{}", *function_ptr);
+                            }
+                            ObjectReference::Instance(runtime_reference) => {
+                                let class_ref = self
+                                    .get_pointer(runtime_reference)
+                                    .ok_or(Error::Runtime)?
+                                    .class;
+                                let name_ref =
+                                    self.get_pointer(class_ref).ok_or(Error::Runtime)?.name;
+                                let name = self.get_pointer(name_ref).ok_or(Error::Runtime)?;
+                                println!("{} instance", *name);
+                            }
+                            ObjectReference::Native(runtime_reference) => {
+                                let native_ptr =
+                                    self.get_pointer(runtime_reference).ok_or(Error::Runtime)?;
+                                println!("{}", *native_ptr);
+                            }
+                            ObjectReference::String(runtime_reference) => {
+                                let string_ptr =
+                                    self.get_pointer(runtime_reference).ok_or(Error::Runtime)?;
+                                println!("{}", *string_ptr);
+                            }
+                            ObjectReference::Upvalue(runtime_reference) => {
+                                let upvalue_ptr =
+                                    self.get_pointer(runtime_reference).ok_or(Error::Runtime)?;
+                                println!("{}", *upvalue_ptr);
+                            }
+                        },
+                        RuntimeValue::Nil => println!("nil"),
+                    }
+                }
                 OpCode::Jump => todo!(),
                 OpCode::JumpIfFalse => todo!(),
                 OpCode::Loop => todo!(),
@@ -346,6 +488,10 @@ impl VM {
 
     fn peek_typed<T: TryFrom<RuntimeValue>>(&mut self, distance: usize) -> Option<T> {
         (*self.peek_value(distance)?).try_into().ok()
+    }
+
+    fn pop_typed<T: TryFrom<RuntimeValue>>(&mut self) -> Option<T> {
+        self.pop_value()?.try_into().ok()
     }
 }
 
