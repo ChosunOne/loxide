@@ -1,6 +1,12 @@
-use crate::{object::ObjClass, value::RuntimeReference};
+use std::collections::HashMap;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+use crate::{
+    object::ObjClass,
+    value::{RuntimeReference, RuntimeValue},
+};
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct ObjInstance {
     pub class: RuntimeReference<ObjClass>,
+    pub fields: HashMap<String, RuntimeValue>,
 }

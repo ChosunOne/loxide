@@ -11,6 +11,8 @@ use crate::{
     },
 };
 
+use super::RuntimeValue;
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ObjectReference {
     BoundMethod(RuntimeReference<ObjBoundMethod>),
@@ -151,12 +153,34 @@ impl<T> From<&RuntimePointer<'_, T>> for RuntimeReference<T> {
     }
 }
 
+impl TryFrom<RuntimeValue> for RuntimeReference<ObjBoundMethod> {
+    type Error = Error;
+
+    fn try_from(value: RuntimeValue) -> Result<Self, Self::Error> {
+        match value {
+            RuntimeValue::Object(o) => o.try_into(),
+            _ => Err(Error::Runtime),
+        }
+    }
+}
+
 impl TryFrom<ObjectReference> for RuntimeReference<ObjBoundMethod> {
     type Error = Error;
 
     fn try_from(value: ObjectReference) -> Result<Self, Error> {
         match value {
             ObjectReference::BoundMethod(bm) => Ok(bm),
+            _ => Err(Error::Runtime),
+        }
+    }
+}
+
+impl TryFrom<RuntimeValue> for RuntimeReference<ObjClass> {
+    type Error = Error;
+
+    fn try_from(value: RuntimeValue) -> Result<Self, Self::Error> {
+        match value {
+            RuntimeValue::Object(o) => o.try_into(),
             _ => Err(Error::Runtime),
         }
     }
@@ -173,12 +197,34 @@ impl TryFrom<ObjectReference> for RuntimeReference<ObjClass> {
     }
 }
 
+impl TryFrom<RuntimeValue> for RuntimeReference<ObjClosure> {
+    type Error = Error;
+
+    fn try_from(value: RuntimeValue) -> Result<Self, Self::Error> {
+        match value {
+            RuntimeValue::Object(o) => o.try_into(),
+            _ => Err(Error::Runtime),
+        }
+    }
+}
+
 impl TryFrom<ObjectReference> for RuntimeReference<ObjClosure> {
     type Error = Error;
 
     fn try_from(value: ObjectReference) -> Result<Self, Error> {
         match value {
             ObjectReference::Closure(c) => Ok(c),
+            _ => Err(Error::Runtime),
+        }
+    }
+}
+
+impl TryFrom<RuntimeValue> for RuntimeReference<ObjFunction> {
+    type Error = Error;
+
+    fn try_from(value: RuntimeValue) -> Result<Self, Self::Error> {
+        match value {
+            RuntimeValue::Object(o) => o.try_into(),
             _ => Err(Error::Runtime),
         }
     }
@@ -195,12 +241,34 @@ impl TryFrom<ObjectReference> for RuntimeReference<ObjFunction> {
     }
 }
 
+impl TryFrom<RuntimeValue> for RuntimeReference<ObjInstance> {
+    type Error = Error;
+
+    fn try_from(value: RuntimeValue) -> Result<Self, Self::Error> {
+        match value {
+            RuntimeValue::Object(o) => o.try_into(),
+            _ => Err(Error::Runtime),
+        }
+    }
+}
+
 impl TryFrom<ObjectReference> for RuntimeReference<ObjInstance> {
     type Error = Error;
 
     fn try_from(value: ObjectReference) -> Result<Self, Error> {
         match value {
             ObjectReference::Instance(i) => Ok(i),
+            _ => Err(Error::Runtime),
+        }
+    }
+}
+
+impl TryFrom<RuntimeValue> for RuntimeReference<ObjNative> {
+    type Error = Error;
+
+    fn try_from(value: RuntimeValue) -> Result<Self, Self::Error> {
+        match value {
+            RuntimeValue::Object(o) => o.try_into(),
             _ => Err(Error::Runtime),
         }
     }
@@ -217,12 +285,34 @@ impl TryFrom<ObjectReference> for RuntimeReference<ObjNative> {
     }
 }
 
+impl TryFrom<RuntimeValue> for RuntimeReference<ObjString> {
+    type Error = Error;
+
+    fn try_from(value: RuntimeValue) -> Result<Self, Self::Error> {
+        match value {
+            RuntimeValue::Object(o) => o.try_into(),
+            _ => Err(Error::Runtime),
+        }
+    }
+}
+
 impl TryFrom<ObjectReference> for RuntimeReference<ObjString> {
     type Error = Error;
 
     fn try_from(value: ObjectReference) -> Result<Self, Error> {
         match value {
             ObjectReference::String(s) => Ok(s),
+            _ => Err(Error::Runtime),
+        }
+    }
+}
+
+impl TryFrom<RuntimeValue> for RuntimeReference<ObjUpvalue> {
+    type Error = Error;
+
+    fn try_from(value: RuntimeValue) -> Result<Self, Self::Error> {
+        match value {
+            RuntimeValue::Object(o) => o.try_into(),
             _ => Err(Error::Runtime),
         }
     }

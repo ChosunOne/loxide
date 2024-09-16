@@ -121,6 +121,14 @@ impl VM {
         Ok(string)
     }
 
+    fn bind_method(
+        &mut self,
+        class: RuntimeReference<ObjClass>,
+        name: ObjString,
+    ) -> Result<(), Error> {
+        todo!()
+    }
+
     fn run(&mut self) -> Result<(), Error> {
         loop {
             let instruction = OpCode::from(self.read_byte()?);
@@ -204,8 +212,41 @@ impl VM {
                     };
                     upvalue.location = value;
                 }
-                OpCode::GetProperty => todo!(),
-                OpCode::SetProperty => todo!(),
+                OpCode::GetProperty => {
+                    let name = self.read_string()?;
+                    let instance = {
+                        let instance_ref = self
+                            .peek_typed::<RuntimeReference<ObjInstance>>(0)
+                            .ok_or_else(|| {
+                                self.runtime_error("Only instances have fields.".into());
+                                Error::Runtime
+                            })?;
+                        self.get_pointer(instance_ref).ok_or(Error::Runtime)?
+                    };
+                    if let Some(&v) = instance.fields.get(&name.chars) {
+                        self.pop_value(); // Instance
+                        self.push_value(v);
+                        continue;
+                    }
+
+                    let class = instance.class;
+                    self.bind_method(class, name)?;
+                }
+                OpCode::SetProperty => {
+                    let instance_ref = self
+                        .peek_typed::<RuntimeReference<ObjInstance>>(1)
+                        .ok_or_else(|| {
+                            self.runtime_error("Only instances have fields.".into());
+                            Error::Runtime
+                        })?;
+                    let name = self.read_string()?;
+                    let value = *self.peek_value(0).ok_or(Error::Runtime)?;
+                    let mut instance = self.get_pointer(instance_ref).ok_or(Error::Runtime)?;
+                    instance.fields.insert(name.chars, value);
+                    let value = self.pop_value().ok_or(Error::Runtime)?;
+                    self.pop_value(); // Instance
+                    self.push_value(value);
+                }
                 OpCode::GetSuper => todo!(),
                 OpCode::Equal => todo!(),
                 OpCode::Greater => todo!(),
@@ -301,6 +342,10 @@ impl VM {
         }
         let index = self.value_stack.len() - 1 - distance;
         self.value_stack.get_mut(index)
+    }
+
+    fn peek_typed<T: TryFrom<RuntimeValue>>(&mut self, distance: usize) -> Option<T> {
+        (*self.peek_value(distance)?).try_into().ok()
     }
 }
 
