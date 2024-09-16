@@ -400,9 +400,20 @@ impl VM {
                         RuntimeValue::Nil => println!("nil"),
                     }
                 }
-                OpCode::Jump => todo!(),
-                OpCode::JumpIfFalse => todo!(),
-                OpCode::Loop => todo!(),
+                OpCode::Jump => {
+                    let offset = self.read_short()? as usize;
+                    self.current_frame().ip += offset;
+                }
+                OpCode::JumpIfFalse => {
+                    let offset = self.read_short()? as usize;
+                    if self.peek_value(0).ok_or(Error::Runtime)?.is_falsey() {
+                        self.current_frame().ip += offset;
+                    }
+                }
+                OpCode::Loop => {
+                    let offset = self.read_short()? as usize;
+                    self.current_frame().ip -= offset;
+                }
                 OpCode::Call => todo!(),
                 OpCode::Invoke => todo!(),
                 OpCode::SuperInvoke => todo!(),
