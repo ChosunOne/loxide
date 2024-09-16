@@ -1,4 +1,4 @@
-use std::array;
+use std::{array, collections::HashMap};
 
 use crate::{
     call_frame::CallFrame,
@@ -7,7 +7,7 @@ use crate::{
     error::Error,
     object::{
         object_store::GetPointer, ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance,
-        ObjNative, ObjString, Object, ObjectStore,
+        ObjNative, ObjString, ObjUpvalue, Object, ObjectStore,
     },
     value::{
         runtime_pointer::ObjectReference, ConstantValue, RuntimePointer, RuntimeReference,
@@ -25,6 +25,7 @@ pub struct VM {
     frame_stack: [CallFrame; MAX_FRAMES],
     value_stack_top: usize,
     frame_stack_top: usize,
+    globals: HashMap<String, RuntimeValue>,
 }
 
 impl Default for VM {
@@ -35,6 +36,7 @@ impl Default for VM {
             frame_stack: array::from_fn(|_| todo!()),
             frame_stack_top: 0,
             value_stack_top: 0,
+            globals: HashMap::default(),
         }
     }
 }
@@ -111,6 +113,14 @@ impl VM {
             .clone())
     }
 
+    fn read_string(&mut self) -> Result<ObjString, Error> {
+        let string = match self.read_constant()? {
+            ConstantValue::String(s) => ObjString::from(s),
+            _ => return Err(Error::Runtime),
+        };
+        Ok(string)
+    }
+
     fn run(&mut self) -> Result<(), Error> {
         loop {
             let instruction = OpCode::from(self.read_byte()?);
@@ -142,12 +152,58 @@ impl VM {
                     let value = *self.peek_value(slot).ok_or(Error::Runtime)?;
                     self.push_value(value);
                 }
-                OpCode::SetLocal => todo!(),
-                OpCode::GetGlobal => todo!(),
-                OpCode::SetGlobal => todo!(),
-                OpCode::DefineGlobal => todo!(),
-                OpCode::GetUpvalue => todo!(),
-                OpCode::SetUpvalue => todo!(),
+                OpCode::SetLocal => {
+                    let slot = self.current_frame().slots - self.read_byte()? as usize;
+                    let value = *self.peek_value(0).ok_or(Error::Runtime)?;
+                    *self.peek_value(slot).ok_or(Error::Runtime)? = value;
+                }
+                OpCode::GetGlobal => {
+                    let name = self.read_string()?;
+                    let value = match self.globals.get(&name.chars) {
+                        Some(v) => *v,
+                        None => {
+                            self.runtime_error("Undefined variable {name}".into());
+                            return Err(Error::Runtime);
+                        }
+                    };
+                    self.push_value(value);
+                }
+                OpCode::SetGlobal => {
+                    let name = self.read_string()?;
+                    if self.globals.contains_key(&name.chars) {
+                        self.runtime_error("Undefined variable '{name}'.".into());
+                        return Err(Error::Runtime);
+                    }
+                    let value = *self.peek_value(0).ok_or(Error::Runtime)?;
+                    self.globals.insert(name.chars, value);
+                }
+                OpCode::DefineGlobal => {
+                    let name = self.read_string()?;
+                    let value = *self.peek_value(0).ok_or(Error::Runtime)?;
+                    self.globals.insert(name.chars, value);
+                }
+                OpCode::GetUpvalue => {
+                    let slot = self.read_byte()? as usize;
+                    let upvalue = {
+                        let closure_ref = self.current_frame().closure;
+                        let closure = self.get_pointer(closure_ref).ok_or(Error::Runtime)?;
+                        let upvalue_ref = closure.upvalues[slot];
+                        self.get_pointer(upvalue_ref).ok_or(Error::Runtime)?
+                    };
+                    let location = upvalue.location;
+                    self.push_value(location);
+                }
+                OpCode::SetUpvalue => {
+                    let slot = self.read_byte()? as usize;
+                    let value = *self.peek_value(0).ok_or(Error::Runtime)?;
+                    let mut upvalue = {
+                        let closure_ref = self.current_frame().closure;
+                        let closure = self.get_pointer(closure_ref).ok_or(Error::Runtime)?;
+                        let upvalue_ref = closure.upvalues[slot];
+                        self.get_pointer(upvalue_ref).ok_or(Error::Runtime)?
+                    };
+                    upvalue.location = value;
+                }
                 OpCode::GetProperty => todo!(),
                 OpCode::SetProperty => todo!(),
                 OpCode::GetSuper => todo!(),
@@ -304,6 +360,15 @@ impl GetPointer<ObjString> for VM {
         &mut self,
         key: RuntimeReference<ObjString>,
     ) -> Option<RuntimePointer<ObjString>> {
+        self.object_store.get_pointer(key)
+    }
+}
+
+impl GetPointer<ObjUpvalue> for VM {
+    fn get_pointer(
+        &mut self,
+        key: RuntimeReference<ObjUpvalue>,
+    ) -> Option<RuntimePointer<ObjUpvalue>> {
         self.object_store.get_pointer(key)
     }
 }

@@ -3,7 +3,7 @@ use std::fmt::Display;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ObjUpvalue {
-    pub location: RuntimeReference<RuntimeValue>,
+    pub location: RuntimeValue,
     pub closed: RuntimeValue,
     pub next: Option<RuntimeReference<ObjUpvalue>>,
 }
