@@ -47,6 +47,12 @@ impl From<f64> for RuntimeValue {
     }
 }
 
+impl From<usize> for RuntimeValue {
+    fn from(value: usize) -> Self {
+        Self::Number(value as f64)
+    }
+}
+
 impl From<ObjectReference> for RuntimeValue {
     fn from(value: ObjectReference) -> Self {
         Self::Object(value)

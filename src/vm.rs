@@ -129,6 +129,21 @@ impl VM {
         todo!()
     }
 
+    fn capture_upvalue(
+        &mut self,
+        local: impl Into<RuntimeValue>,
+    ) -> Result<RuntimeReference<ObjUpvalue>, Error> {
+        todo!()
+    }
+
+    fn close_upvalues(&mut self, last: impl Into<RuntimeValue>) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn define_method(&mut self, name: String) -> Result<(), Error> {
+        todo!()
+    }
+
     fn concatenate(&mut self) -> Result<(), Error> {
         todo!()
     }
@@ -513,13 +528,92 @@ impl VM {
                     self.pop_frame().ok_or(Error::Runtime)?;
                     return Ok(());
                 }
-                OpCode::SuperInvoke => todo!(),
-                OpCode::Closure => todo!(),
-                OpCode::CloseUpvalue => todo!(),
-                OpCode::Return => todo!(),
-                OpCode::Class => todo!(),
-                OpCode::Inherit => todo!(),
-                OpCode::Method => todo!(),
+                OpCode::SuperInvoke => {
+                    let method_name = self.read_string()?;
+                    let arg_count = self.read_byte()? as usize;
+                    let class = self
+                        .pop_typed::<RuntimeReference<ObjClass>>()
+                        .ok_or(Error::Runtime)?;
+                    self.invoke_from_class(class, method_name.chars, arg_count)?;
+                    self.pop_frame().ok_or(Error::Runtime)?;
+                }
+                OpCode::Closure => {
+                    let ConstantValue::Function(function) = self.read_constant()? else {
+                        return Err(Error::Runtime);
+                    };
+                    let function_ref = (&self.object_store.insert(*function)).into();
+                    let closure = self.new_closure(function_ref);
+                    self.push_value(closure);
+                    let upvalue_count = self
+                        .get_pointer(closure)
+                        .ok_or(Error::Runtime)?
+                        .upvalues
+                        .len();
+                    let current_closure_ref = self.current_frame().closure;
+                    for i in 0..upvalue_count {
+                        let is_local = self.read_byte()? != 0;
+                        let index = self.read_byte()? as usize;
+                        if is_local {
+                            let slots = self.current_frame().slots + index;
+                            let upvalue = self.capture_upvalue(slots)?;
+                            self.get_pointer(closure).ok_or(Error::Runtime)?.upvalues[i] = upvalue;
+                        } else {
+                            let current_closure_upvalue = self
+                                .get_pointer(current_closure_ref)
+                                .ok_or(Error::Runtime)?
+                                .upvalues[index];
+                            self.get_pointer(closure).ok_or(Error::Runtime)?.upvalues[i] =
+                                current_closure_upvalue;
+                        }
+                    }
+                }
+                OpCode::CloseUpvalue => {
+                    let value = *self.peek_value(0).ok_or(Error::Runtime)?;
+                    self.close_upvalues(value)?;
+                    self.pop_value().ok_or(Error::Runtime)?;
+                }
+                OpCode::Return => {
+                    let result = self.pop_value().ok_or(Error::Runtime)?;
+                    let slots = self.current_frame().slots;
+                    self.close_upvalues(slots)?;
+                    self.pop_frame().ok_or(Error::Runtime)?;
+                    if self.frame_stack_top == 0 {
+                        return Ok(());
+                    }
+                    self.frame_stack_top -= slots;
+                    self.push_value(result);
+                }
+                OpCode::Class => {
+                    let name = self.read_string()?;
+                    let class = self.new_class(name);
+                    self.push_value(class);
+                }
+                OpCode::Inherit => {
+                    let Some(superclass) = self.peek_typed::<RuntimeReference<ObjClass>>(1) else {
+                        self.runtime_error("Superclass must be a class.".into());
+                        return Err(Error::Runtime);
+                    };
+                    let subclass = self
+                        .peek_typed::<RuntimeReference<ObjClass>>(0)
+                        .ok_or(Error::Runtime)?;
+                    let methods: Vec<_> = self
+                        .get_pointer(superclass)
+                        .ok_or(Error::Runtime)?
+                        .methods
+                        .iter()
+                        .map(|x| (x.0.clone(), *x.1))
+                        .collect();
+                    let subclass_methods =
+                        &mut self.get_pointer(subclass).ok_or(Error::Runtime)?.methods;
+                    for (key, value) in methods {
+                        subclass_methods.insert(key, value);
+                    }
+                    self.pop_value().ok_or(Error::Runtime)?; // Subclass
+                }
+                OpCode::Method => {
+                    let name = self.read_string()?;
+                    self.define_method(name.chars)?;
+                }
                 OpCode::Unknown => return Err(Error::Runtime),
             }
         }
@@ -555,6 +649,15 @@ impl VM {
         frame.slots = arg_count;
         self.frame_stack_top += 1;
         Ok(())
+    }
+
+    fn new_class(&mut self, name: ObjString) -> RuntimeReference<ObjClass> {
+        let name_ref = (&self.object_store.insert(name)).into();
+        let class = ObjClass {
+            name: name_ref,
+            methods: HashMap::new(),
+        };
+        (&self.object_store.insert(class)).into()
     }
 
     fn new_closure(
