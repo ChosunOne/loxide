@@ -133,6 +133,91 @@ impl VM {
         todo!()
     }
 
+    fn invoke(&mut self, method_name: String, arg_count: usize) -> Result<(), Error> {
+        let receiver_ref = self
+            .peek_typed::<RuntimeReference<ObjInstance>>(arg_count)
+            .ok_or_else(|| {
+                self.runtime_error("Only instances have methods.".into());
+                Error::Runtime
+            })?;
+        let instance_fields = &self.get_pointer(receiver_ref).ok_or(Error::Runtime)?.fields;
+        if let Some(&value) = instance_fields.get(&method_name) {
+            self.value_stack[self.value_stack_top - arg_count - 1] = value;
+            return self.call_value(value, arg_count);
+        }
+        let class = self.get_pointer(receiver_ref).ok_or(Error::Runtime)?.class;
+        self.invoke_from_class(class, method_name, arg_count)
+    }
+
+    fn invoke_from_class(
+        &mut self,
+        class: RuntimeReference<ObjClass>,
+        method_name: String,
+        arg_count: usize,
+    ) -> Result<(), Error> {
+        let class_methods = &self.get_pointer(class).ok_or(Error::Runtime)?.methods;
+        let Some(&method) = class_methods.get(&method_name) else {
+            self.runtime_error("Undefined property {method_name}.".into());
+            return Err(Error::Runtime);
+        };
+        self.call(method, arg_count)
+    }
+
+    fn call_value(&mut self, callee: RuntimeValue, arg_count: usize) -> Result<(), Error> {
+        match callee {
+            RuntimeValue::Object(object_reference) => match object_reference {
+                ObjectReference::BoundMethod(runtime_reference) => {
+                    let receiver = self
+                        .get_pointer(runtime_reference)
+                        .ok_or(Error::Runtime)?
+                        .receiver;
+                    *self.peek_value(arg_count).ok_or(Error::Runtime)? = receiver;
+                    let method = self
+                        .get_pointer(runtime_reference)
+                        .ok_or(Error::Runtime)?
+                        .method;
+                    self.call(method, arg_count)
+                }
+                ObjectReference::Class(runtime_reference) => {
+                    let instance = self.new_instance(runtime_reference);
+                    *self.peek_value(arg_count).ok_or(Error::Runtime)? = instance.into();
+                    let methods = &self
+                        .get_pointer(runtime_reference)
+                        .ok_or(Error::Runtime)?
+                        .methods;
+                    if let Some(&initializer) = methods.get("init") {
+                        self.call(initializer, arg_count)?;
+                    } else if arg_count != 0 {
+                        self.runtime_error("Expected 0 arguments but got {arg_count}.".into());
+                        return Err(Error::Runtime);
+                    }
+                    Ok(())
+                }
+                ObjectReference::Closure(runtime_reference) => {
+                    self.call(runtime_reference, arg_count)
+                }
+                ObjectReference::Native(runtime_reference) => {
+                    let args = (self.value_stack
+                        [self.value_stack_top - arg_count..self.value_stack_top])
+                        .to_vec();
+                    let native = self.get_pointer(runtime_reference).ok_or(Error::Runtime)?;
+                    let result = (native.function)(args);
+                    self.value_stack_top -= arg_count + 1;
+                    self.push_value(result);
+                    Ok(())
+                }
+                _ => {
+                    self.runtime_error("Can only call functions and classes.".into());
+                    Err(Error::Runtime)
+                }
+            },
+            _ => {
+                self.runtime_error("Can only call functions and classes.".into());
+                Err(Error::Runtime)
+            }
+        }
+    }
+
     fn run(&mut self) -> Result<(), Error> {
         loop {
             let instruction = OpCode::from(self.read_byte()?);
@@ -414,8 +499,20 @@ impl VM {
                     let offset = self.read_short()? as usize;
                     self.current_frame().ip -= offset;
                 }
-                OpCode::Call => todo!(),
-                OpCode::Invoke => todo!(),
+                OpCode::Call => {
+                    let arg_count = self.read_byte()? as usize;
+                    let callee = *self.peek_value(arg_count).ok_or(Error::Runtime)?;
+                    self.call_value(callee, arg_count)?;
+                    self.pop_frame().ok_or(Error::Runtime)?;
+                    return Ok(());
+                }
+                OpCode::Invoke => {
+                    let method_name = self.read_string()?;
+                    let arg_count = self.read_byte()? as usize;
+                    self.invoke(method_name.chars, arg_count)?;
+                    self.pop_frame().ok_or(Error::Runtime)?;
+                    return Ok(());
+                }
                 OpCode::SuperInvoke => todo!(),
                 OpCode::Closure => todo!(),
                 OpCode::CloseUpvalue => todo!(),
@@ -473,12 +570,28 @@ impl VM {
         (&self.object_store.insert(closure)).into()
     }
 
+    fn new_instance(&mut self, class: RuntimeReference<ObjClass>) -> RuntimeReference<ObjInstance> {
+        let instance = ObjInstance {
+            class,
+            fields: HashMap::new(),
+        };
+        (&self.object_store.insert(instance)).into()
+    }
+
     fn push_value(&mut self, value: impl Into<RuntimeValue>) {
         if self.value_stack_top == MAX_STACK_SIZE {
             panic!("Stack overflow.");
         }
         self.value_stack[self.value_stack_top] = value.into();
         self.value_stack_top += 1;
+    }
+
+    fn pop_frame(&mut self) -> Option<CallFrame> {
+        if self.frame_stack_top == 0 {
+            return None;
+        }
+        self.frame_stack_top -= 1;
+        Some(self.frame_stack[self.frame_stack_top])
     }
 
     fn pop_value(&mut self) -> Option<RuntimeValue> {

@@ -1,6 +1,6 @@
 use crate::{object::ObjClosure, value::RuntimeReference};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct CallFrame {
     /// A reference to the currently executing closure
     pub(crate) closure: RuntimeReference<ObjClosure>,
