@@ -26,6 +26,7 @@ pub struct VM {
     value_stack_top: usize,
     frame_stack_top: usize,
     globals: HashMap<String, RuntimeValue>,
+    open_upvalues: Vec<RuntimeReference<ObjUpvalue>>,
 }
 
 impl Default for VM {
@@ -37,6 +38,7 @@ impl Default for VM {
             frame_stack_top: 0,
             value_stack_top: 0,
             globals: HashMap::default(),
+            open_upvalues: Vec::new(),
         }
     }
 }
@@ -67,8 +69,29 @@ impl VM {
         self.run()
     }
 
+    fn reset_stack(&mut self) {
+        self.value_stack_top = 0;
+        self.frame_stack_top = 0;
+        self.open_upvalues = Vec::new();
+    }
+
     fn runtime_error(&mut self, message: String) {
-        todo!()
+        eprintln!("{message}");
+
+        while let Some(frame) = self.pop_frame() {
+            let function = self
+                .get_closure_function(frame.closure)
+                .expect("Failed to get frame closure.");
+            let line = function.chunk.lines[frame.ip];
+            eprint!("[line {line}] in ");
+            if let Some(name) = &function.name {
+                eprintln!("{name}");
+            } else {
+                eprintln!("script");
+            }
+        }
+
+        self.reset_stack();
     }
 
     fn current_frame(&mut self) -> &mut CallFrame {
@@ -126,7 +149,17 @@ impl VM {
         class: RuntimeReference<ObjClass>,
         name: ObjString,
     ) -> Result<(), Error> {
-        todo!()
+        let methods = &self.get_pointer(class).ok_or(Error::Runtime)?.methods;
+        let Some(&method) = methods.get(&name.chars) else {
+            self.runtime_error(format!("Undefined property '{}'", &name.chars));
+            return Err(Error::Runtime);
+        };
+
+        let receiver = *self.peek_value(0).ok_or(Error::Runtime)?;
+        let bound = self.new_bound_method(receiver, method);
+        self.pop_value();
+        self.push_value(bound);
+        Ok(())
     }
 
     fn capture_upvalue(
@@ -679,6 +712,15 @@ impl VM {
             fields: HashMap::new(),
         };
         (&self.object_store.insert(instance)).into()
+    }
+
+    fn new_bound_method(
+        &mut self,
+        receiver: RuntimeValue,
+        method: RuntimeReference<ObjClosure>,
+    ) -> RuntimeReference<ObjBoundMethod> {
+        let bound_method = ObjBoundMethod { receiver, method };
+        (&self.object_store.insert(bound_method)).into()
     }
 
     fn push_value(&mut self, value: impl Into<RuntimeValue>) {
