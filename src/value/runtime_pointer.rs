@@ -127,6 +127,15 @@ pub struct RuntimeReference<T> {
     pub(crate) _phantom: PhantomData<T>,
 }
 
+impl<T> Default for RuntimeReference<T> {
+    fn default() -> Self {
+        Self {
+            object_ref: std::ptr::null::<Object>(),
+            _phantom: PhantomData,
+        }
+    }
+}
+
 impl<T> Clone for RuntimeReference<T> {
     fn clone(&self) -> Self {
         *self

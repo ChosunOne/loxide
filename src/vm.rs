@@ -33,7 +33,7 @@ impl Default for VM {
         Self {
             object_store: ObjectStore::default(),
             value_stack: array::from_fn(|_| RuntimeValue::default()),
-            frame_stack: array::from_fn(|_| todo!()),
+            frame_stack: array::from_fn(|_| CallFrame::default()),
             frame_stack_top: 0,
             value_stack_top: 0,
             globals: HashMap::default(),
