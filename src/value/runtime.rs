@@ -24,6 +24,17 @@ impl RuntimeValue {
     }
 }
 
+impl TryFrom<RuntimeValue> for usize {
+    type Error = Error;
+
+    fn try_from(value: RuntimeValue) -> Result<Self, Self::Error> {
+        match value {
+            RuntimeValue::Number(n) => Ok(n as usize),
+            _ => Err(Error::Runtime),
+        }
+    }
+}
+
 impl TryFrom<RuntimeValue> for f64 {
     type Error = Error;
 

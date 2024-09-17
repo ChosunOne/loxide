@@ -1,11 +1,12 @@
-use crate::value::{RuntimeReference, RuntimeValue};
+use crate::value::RuntimeValue;
 use std::fmt::Display;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ObjUpvalue {
-    pub location: RuntimeValue,
-    pub closed: RuntimeValue,
-    pub next: Option<RuntimeReference<ObjUpvalue>>,
+pub enum ObjUpvalue {
+    /// The location **in the stack** where this variable's value can be found.
+    Open(usize),
+    /// The value that is no longer on the stack ("closed").
+    Closed(RuntimeValue),
 }
 
 impl Display for ObjUpvalue {

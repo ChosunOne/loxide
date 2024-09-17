@@ -4,4 +4,4 @@ pub mod runtime_pointer;
 
 pub use constant::ConstantValue;
 pub use runtime::RuntimeValue;
-pub use runtime_pointer::{RuntimePointer, RuntimeReference};
+pub use runtime_pointer::{RuntimePointerMut, RuntimeReference};

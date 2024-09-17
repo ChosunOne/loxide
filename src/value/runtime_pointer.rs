@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
@@ -31,8 +32,8 @@ impl From<RuntimeReference<ObjBoundMethod>> for ObjectReference {
     }
 }
 
-impl From<RuntimePointer<'_, ObjBoundMethod>> for ObjectReference {
-    fn from(value: RuntimePointer<'_, ObjBoundMethod>) -> Self {
+impl From<RuntimePointerMut<'_, ObjBoundMethod>> for ObjectReference {
+    fn from(value: RuntimePointerMut<'_, ObjBoundMethod>) -> Self {
         Self::BoundMethod((&value).into())
     }
 }
@@ -43,8 +44,8 @@ impl From<RuntimeReference<ObjClass>> for ObjectReference {
     }
 }
 
-impl From<RuntimePointer<'_, ObjClass>> for ObjectReference {
-    fn from(value: RuntimePointer<'_, ObjClass>) -> Self {
+impl From<RuntimePointerMut<'_, ObjClass>> for ObjectReference {
+    fn from(value: RuntimePointerMut<'_, ObjClass>) -> Self {
         Self::Class((&value).into())
     }
 }
@@ -55,8 +56,8 @@ impl From<RuntimeReference<ObjClosure>> for ObjectReference {
     }
 }
 
-impl From<RuntimePointer<'_, ObjClosure>> for ObjectReference {
-    fn from(value: RuntimePointer<'_, ObjClosure>) -> Self {
+impl From<RuntimePointerMut<'_, ObjClosure>> for ObjectReference {
+    fn from(value: RuntimePointerMut<'_, ObjClosure>) -> Self {
         Self::Closure((&value).into())
     }
 }
@@ -67,8 +68,8 @@ impl From<RuntimeReference<ObjFunction>> for ObjectReference {
     }
 }
 
-impl From<RuntimePointer<'_, ObjFunction>> for ObjectReference {
-    fn from(value: RuntimePointer<'_, ObjFunction>) -> Self {
+impl From<RuntimePointerMut<'_, ObjFunction>> for ObjectReference {
+    fn from(value: RuntimePointerMut<'_, ObjFunction>) -> Self {
         Self::Function((&value).into())
     }
 }
@@ -79,8 +80,8 @@ impl From<RuntimeReference<ObjInstance>> for ObjectReference {
     }
 }
 
-impl From<RuntimePointer<'_, ObjInstance>> for ObjectReference {
-    fn from(value: RuntimePointer<'_, ObjInstance>) -> Self {
+impl From<RuntimePointerMut<'_, ObjInstance>> for ObjectReference {
+    fn from(value: RuntimePointerMut<'_, ObjInstance>) -> Self {
         Self::Instance((&value).into())
     }
 }
@@ -91,8 +92,8 @@ impl From<RuntimeReference<ObjNative>> for ObjectReference {
     }
 }
 
-impl From<RuntimePointer<'_, ObjNative>> for ObjectReference {
-    fn from(value: RuntimePointer<'_, ObjNative>) -> Self {
+impl From<RuntimePointerMut<'_, ObjNative>> for ObjectReference {
+    fn from(value: RuntimePointerMut<'_, ObjNative>) -> Self {
         Self::Native((&value).into())
     }
 }
@@ -103,8 +104,8 @@ impl From<RuntimeReference<ObjString>> for ObjectReference {
     }
 }
 
-impl From<RuntimePointer<'_, ObjString>> for ObjectReference {
-    fn from(value: RuntimePointer<'_, ObjString>) -> Self {
+impl From<RuntimePointerMut<'_, ObjString>> for ObjectReference {
+    fn from(value: RuntimePointerMut<'_, ObjString>) -> Self {
         Self::String((&value).into())
     }
 }
@@ -115,8 +116,8 @@ impl From<RuntimeReference<ObjUpvalue>> for ObjectReference {
     }
 }
 
-impl From<RuntimePointer<'_, ObjUpvalue>> for ObjectReference {
-    fn from(value: RuntimePointer<'_, ObjUpvalue>) -> Self {
+impl From<RuntimePointerMut<'_, ObjUpvalue>> for ObjectReference {
+    fn from(value: RuntimePointerMut<'_, ObjUpvalue>) -> Self {
         Self::Upvalue((&value).into())
     }
 }
@@ -153,8 +154,8 @@ impl<T> From<&Object> for RuntimeReference<T> {
     }
 }
 
-impl<T> From<&RuntimePointer<'_, T>> for RuntimeReference<T> {
-    fn from(value: &RuntimePointer<'_, T>) -> Self {
+impl<T> From<&RuntimePointerMut<'_, T>> for RuntimeReference<T> {
+    fn from(value: &RuntimePointerMut<'_, T>) -> Self {
         Self {
             object_ref: value.object_ref,
             _phantom: PhantomData,
@@ -338,17 +339,42 @@ impl TryFrom<ObjectReference> for RuntimeReference<ObjUpvalue> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct RuntimePointer<'a, T> {
-    pub(crate) object_store: &'a mut ObjectStore,
+    pub(crate) object_store: &'a ObjectStore,
     pub(crate) object_ref: *const Object,
     pub(crate) _phantom: PhantomData<T>,
 }
 
-impl<'a, T> RuntimePointer<'a, T> {
-    pub fn as_raw_ptr(self) -> *const Object {
-        self.object_ref
+impl Eq for RuntimePointer<'_, ObjUpvalue> {}
+
+impl Ord for RuntimePointer<'_, ObjUpvalue> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let Some(Object::UpValue(ObjUpvalue::Open(own_slot))) =
+            self.object_store.get(self.object_ref)
+        else {
+            return Ordering::Equal;
+        };
+        let Some(Object::UpValue(ObjUpvalue::Open(other_slot))) =
+            self.object_store.get(other.object_ref)
+        else {
+            return Ordering::Equal;
+        };
+        own_slot.cmp(other_slot)
     }
+}
+
+impl PartialOrd for RuntimePointer<'_, ObjUpvalue> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Debug)]
+pub struct RuntimePointerMut<'a, T> {
+    pub(crate) object_store: &'a mut ObjectStore,
+    pub(crate) object_ref: *const Object,
+    pub(crate) _phantom: PhantomData<T>,
 }
 
 macro_rules! impl_runtime_pointer_deref {
@@ -367,9 +393,39 @@ macro_rules! impl_runtime_pointer_deref {
                 }
             }
         }
+
+        impl<'a> Deref for RuntimePointerMut<'a, $type> {
+            type Target = $type;
+
+            fn deref(&self) -> &Self::Target {
+                match self
+                    .object_store
+                    .get(self.object_ref)
+                    .expect("Failed to get object from store.")
+                {
+                    $variant => $result,
+                    o => panic!("Unexpected object: {o:?}"),
+                }
+            }
+        }
     };
     ($type:ty, $target:ty, $variant:pat => $result:expr) => {
         impl<'a> Deref for RuntimePointer<'a, $type> {
+            type Target = $target;
+
+            fn deref(&self) -> &Self::Target {
+                match self
+                    .object_store
+                    .get(self.object_ref)
+                    .expect("Failed to get object from store.")
+                {
+                    $variant => $result,
+                    o => panic!("Unexpected object: {o:?}"),
+                }
+            }
+        }
+
+        impl<'a> Deref for RuntimePointerMut<'a, $type> {
             type Target = $target;
 
             fn deref(&self) -> &Self::Target {
@@ -400,7 +456,22 @@ macro_rules! impl_runtime_pointer_deref {
             }
         }
 
-        impl<'a> DerefMut for RuntimePointer<'a, $type> {
+        impl<'a> Deref for RuntimePointerMut<'a, $type> {
+            type Target = $type;
+
+            fn deref(&self) -> &Self::Target {
+                match self
+                    .object_store
+                    .get(self.object_ref)
+                    .expect("Failed to get object from store.")
+                {
+                    $variant => $result,
+                    o => panic!("Unexpected object: {o:?}"),
+                }
+            }
+        }
+
+        impl<'a> DerefMut for RuntimePointerMut<'a, $type> {
             fn deref_mut(&mut self) -> &mut Self::Target {
                 match self
                     .object_store
@@ -429,7 +500,22 @@ macro_rules! impl_runtime_pointer_deref {
             }
         }
 
-        impl<'a> DerefMut for RuntimePointer<'a, $type> {
+        impl<'a> Deref for RuntimePointerMut<'a, $type> {
+            type Target = $type;
+
+            fn deref(&self) -> &Self::Target {
+                match self
+                    .object_store
+                    .get(self.object_ref)
+                    .expect("Failed to get object from store.")
+                {
+                    $variant => $result,
+                    o => panic!("Unexpected object: {o:?}"),
+                }
+            }
+        }
+
+        impl<'a> DerefMut for RuntimePointerMut<'a, $type> {
             fn deref_mut(&mut self) -> &mut Self::Target {
                 match self
                     .object_store
@@ -458,7 +544,22 @@ macro_rules! impl_runtime_pointer_deref {
             }
         }
 
-        impl<'a> DerefMut for RuntimePointer<'a, $type> {
+        impl<'a> Deref for RuntimePointerMut<'a, $type> {
+            type Target = $target;
+
+            fn deref(&self) -> &Self::Target {
+                match self
+                    .object_store
+                    .get(self.object_ref)
+                    .expect("Failed to get object from store.")
+                {
+                    $variant => $result,
+                    o => panic!("Unexpected object: {o:?}"),
+                }
+            }
+        }
+
+        impl<'a> DerefMut for RuntimePointerMut<'a, $type> {
             fn deref_mut(&mut self) -> &mut Self::Target {
                 match self
                     .object_store

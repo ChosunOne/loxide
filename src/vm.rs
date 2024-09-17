@@ -1,4 +1,7 @@
-use std::{array, collections::HashMap};
+use std::{
+    array,
+    collections::{BinaryHeap, HashMap},
+};
 
 use crate::{
     call_frame::CallFrame,
@@ -10,8 +13,8 @@ use crate::{
         ObjNative, ObjString, ObjUpvalue, Object, ObjectStore,
     },
     value::{
-        runtime_pointer::ObjectReference, ConstantValue, RuntimePointer, RuntimeReference,
-        RuntimeValue,
+        runtime_pointer::{ObjectReference, RuntimePointer},
+        ConstantValue, RuntimePointerMut, RuntimeReference, RuntimeValue,
     },
 };
 
@@ -19,17 +22,17 @@ const MAX_FRAMES: usize = 64;
 const MAX_STACK_SIZE: usize = u8::MAX as usize * MAX_FRAMES;
 
 #[derive(Debug)]
-pub struct VM {
+pub struct VM<'a> {
     object_store: ObjectStore,
     value_stack: [RuntimeValue; MAX_STACK_SIZE],
     frame_stack: [CallFrame; MAX_FRAMES],
     value_stack_top: usize,
     frame_stack_top: usize,
     globals: HashMap<String, RuntimeValue>,
-    open_upvalues: Vec<RuntimeReference<ObjUpvalue>>,
+    open_upvalues: BinaryHeap<RuntimePointer<'a, ObjUpvalue>>,
 }
 
-impl Default for VM {
+impl Default for VM<'_> {
     fn default() -> Self {
         Self {
             object_store: ObjectStore::default(),
@@ -38,12 +41,12 @@ impl Default for VM {
             frame_stack_top: 0,
             value_stack_top: 0,
             globals: HashMap::default(),
-            open_upvalues: Vec::new(),
+            open_upvalues: BinaryHeap::new(),
         }
     }
 }
 
-impl VM {
+impl VM<'_> {
     pub fn new() -> Self {
         Self::default()
     }
@@ -72,7 +75,7 @@ impl VM {
     fn reset_stack(&mut self) {
         self.value_stack_top = 0;
         self.frame_stack_top = 0;
-        self.open_upvalues = Vec::new();
+        self.open_upvalues = BinaryHeap::new();
     }
 
     fn runtime_error(&mut self, message: String) {
@@ -99,11 +102,19 @@ impl VM {
     }
 
     fn get_closure_function(
-        &mut self,
+        &self,
         closure: RuntimeReference<ObjClosure>,
     ) -> Option<RuntimePointer<'_, ObjFunction>> {
         let function_ref = self.get_pointer(closure).map(|x| x.function)?;
         self.get_pointer(function_ref)
+    }
+
+    fn get_closure_function_mut(
+        &mut self,
+        closure: RuntimeReference<ObjClosure>,
+    ) -> Option<RuntimePointerMut<'_, ObjFunction>> {
+        let function_ref = self.get_pointer(closure).map(|x| x.function)?;
+        self.get_pointer_mut(function_ref)
     }
 
     fn read_byte(&mut self) -> Result<u8, Error> {
@@ -329,25 +340,27 @@ impl VM {
                 }
                 OpCode::GetUpvalue => {
                     let slot = self.read_byte()? as usize;
-                    let upvalue = {
+                    let location = {
                         let closure_ref = self.current_frame().closure;
                         let closure = self.get_pointer(closure_ref).ok_or(Error::Runtime)?;
                         let upvalue_ref = closure.upvalues[slot];
-                        self.get_pointer(upvalue_ref).ok_or(Error::Runtime)?
+                        match *self.get_pointer(upvalue_ref).ok_or(Error::Runtime)? {
+                            ObjUpvalue::Open(i) => i,
+                            ObjUpvalue::Closed(runtime_value) => todo!(),
+                        }
                     };
-                    let location = upvalue.location;
                     self.push_value(location);
                 }
                 OpCode::SetUpvalue => {
                     let slot = self.read_byte()? as usize;
-                    let value = *self.peek_value(0).ok_or(Error::Runtime)?;
+                    let value = self.peek_typed::<usize>(0).ok_or(Error::Runtime)?;
                     let mut upvalue = {
                         let closure_ref = self.current_frame().closure;
                         let closure = self.get_pointer(closure_ref).ok_or(Error::Runtime)?;
                         let upvalue_ref = closure.upvalues[slot];
-                        self.get_pointer(upvalue_ref).ok_or(Error::Runtime)?
+                        self.get_pointer_mut(upvalue_ref).ok_or(Error::Runtime)?
                     };
-                    upvalue.location = value;
+                    *upvalue = ObjUpvalue::Open(value);
                 }
                 OpCode::GetProperty => {
                     let name = self.read_string()?;
@@ -378,7 +391,7 @@ impl VM {
                         })?;
                     let name = self.read_string()?;
                     let value = *self.peek_value(0).ok_or(Error::Runtime)?;
-                    let mut instance = self.get_pointer(instance_ref).ok_or(Error::Runtime)?;
+                    let mut instance = self.get_pointer_mut(instance_ref).ok_or(Error::Runtime)?;
                     instance.fields.insert(name.chars, value);
                     let value = self.pop_value().ok_or(Error::Runtime)?;
                     self.pop_value(); // Instance
@@ -589,14 +602,17 @@ impl VM {
                         if is_local {
                             let slots = self.current_frame().slots + index;
                             let upvalue = self.capture_upvalue(slots)?;
-                            self.get_pointer(closure).ok_or(Error::Runtime)?.upvalues[i] = upvalue;
+                            self.get_pointer_mut(closure)
+                                .ok_or(Error::Runtime)?
+                                .upvalues[i] = upvalue;
                         } else {
                             let current_closure_upvalue = self
                                 .get_pointer(current_closure_ref)
                                 .ok_or(Error::Runtime)?
                                 .upvalues[index];
-                            self.get_pointer(closure).ok_or(Error::Runtime)?.upvalues[i] =
-                                current_closure_upvalue;
+                            self.get_pointer_mut(closure)
+                                .ok_or(Error::Runtime)?
+                                .upvalues[i] = current_closure_upvalue;
                         }
                     }
                 }
@@ -636,8 +652,10 @@ impl VM {
                         .iter()
                         .map(|x| (x.0.clone(), *x.1))
                         .collect();
-                    let subclass_methods =
-                        &mut self.get_pointer(subclass).ok_or(Error::Runtime)?.methods;
+                    let subclass_methods = &mut self
+                        .get_pointer_mut(subclass)
+                        .ok_or(Error::Runtime)?
+                        .methods;
                     for (key, value) in methods {
                         subclass_methods.insert(key, value);
                     }
@@ -764,71 +782,108 @@ impl VM {
     }
 }
 
-impl GetPointer<ObjBoundMethod> for VM {
+impl GetPointer<ObjBoundMethod> for VM<'_> {
     fn get_pointer(
-        &mut self,
+        &self,
         key: RuntimeReference<ObjBoundMethod>,
     ) -> Option<RuntimePointer<ObjBoundMethod>> {
         self.object_store.get_pointer(key)
     }
-}
-
-impl GetPointer<ObjClass> for VM {
-    fn get_pointer(&mut self, key: RuntimeReference<ObjClass>) -> Option<RuntimePointer<ObjClass>> {
-        self.object_store.get_pointer(key)
+    fn get_pointer_mut(
+        &mut self,
+        key: RuntimeReference<ObjBoundMethod>,
+    ) -> Option<RuntimePointerMut<ObjBoundMethod>> {
+        self.object_store.get_pointer_mut(key)
     }
 }
 
-impl GetPointer<ObjClosure> for VM {
-    fn get_pointer(
+impl GetPointer<ObjClass> for VM<'_> {
+    fn get_pointer(&self, key: RuntimeReference<ObjClass>) -> Option<RuntimePointer<ObjClass>> {
+        self.object_store.get_pointer(key)
+    }
+
+    fn get_pointer_mut(
+        &mut self,
+        key: RuntimeReference<ObjClass>,
+    ) -> Option<RuntimePointerMut<ObjClass>> {
+        self.object_store.get_pointer_mut(key)
+    }
+}
+
+impl GetPointer<ObjClosure> for VM<'_> {
+    fn get_pointer(&self, key: RuntimeReference<ObjClosure>) -> Option<RuntimePointer<ObjClosure>> {
+        self.object_store.get_pointer(key)
+    }
+    fn get_pointer_mut(
         &mut self,
         key: RuntimeReference<ObjClosure>,
-    ) -> Option<RuntimePointer<ObjClosure>> {
-        self.object_store.get_pointer(key)
+    ) -> Option<RuntimePointerMut<ObjClosure>> {
+        self.object_store.get_pointer_mut(key)
     }
 }
 
-impl GetPointer<ObjFunction> for VM {
+impl GetPointer<ObjFunction> for VM<'_> {
     fn get_pointer(
-        &mut self,
+        &self,
         key: RuntimeReference<ObjFunction>,
     ) -> Option<RuntimePointer<ObjFunction>> {
         self.object_store.get_pointer(key)
     }
+    fn get_pointer_mut(
+        &mut self,
+        key: RuntimeReference<ObjFunction>,
+    ) -> Option<RuntimePointerMut<ObjFunction>> {
+        self.object_store.get_pointer_mut(key)
+    }
 }
 
-impl GetPointer<ObjInstance> for VM {
+impl GetPointer<ObjInstance> for VM<'_> {
     fn get_pointer(
-        &mut self,
+        &self,
         key: RuntimeReference<ObjInstance>,
     ) -> Option<RuntimePointer<ObjInstance>> {
         self.object_store.get_pointer(key)
     }
+    fn get_pointer_mut(
+        &mut self,
+        key: RuntimeReference<ObjInstance>,
+    ) -> Option<RuntimePointerMut<ObjInstance>> {
+        self.object_store.get_pointer_mut(key)
+    }
 }
 
-impl GetPointer<ObjNative> for VM {
-    fn get_pointer(
+impl GetPointer<ObjNative> for VM<'_> {
+    fn get_pointer(&self, key: RuntimeReference<ObjNative>) -> Option<RuntimePointer<ObjNative>> {
+        self.object_store.get_pointer(key)
+    }
+    fn get_pointer_mut(
         &mut self,
         key: RuntimeReference<ObjNative>,
-    ) -> Option<RuntimePointer<ObjNative>> {
-        self.object_store.get_pointer(key)
+    ) -> Option<RuntimePointerMut<ObjNative>> {
+        self.object_store.get_pointer_mut(key)
     }
 }
 
-impl GetPointer<ObjString> for VM {
-    fn get_pointer(
+impl GetPointer<ObjString> for VM<'_> {
+    fn get_pointer(&self, key: RuntimeReference<ObjString>) -> Option<RuntimePointer<ObjString>> {
+        self.object_store.get_pointer(key)
+    }
+    fn get_pointer_mut(
         &mut self,
         key: RuntimeReference<ObjString>,
-    ) -> Option<RuntimePointer<ObjString>> {
-        self.object_store.get_pointer(key)
+    ) -> Option<RuntimePointerMut<ObjString>> {
+        self.object_store.get_pointer_mut(key)
     }
 }
 
-impl GetPointer<ObjUpvalue> for VM {
-    fn get_pointer(
+impl GetPointer<ObjUpvalue> for VM<'_> {
+    fn get_pointer(&self, key: RuntimeReference<ObjUpvalue>) -> Option<RuntimePointer<ObjUpvalue>> {
+        self.object_store.get_pointer(key)
+    }
+    fn get_pointer_mut(
         &mut self,
         key: RuntimeReference<ObjUpvalue>,
-    ) -> Option<RuntimePointer<ObjUpvalue>> {
-        self.object_store.get_pointer(key)
+    ) -> Option<RuntimePointerMut<ObjUpvalue>> {
+        self.object_store.get_pointer_mut(key)
     }
 }
