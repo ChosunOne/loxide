@@ -1,15 +1,24 @@
 use crate::{
     error::Error,
-    object::{ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjNative},
+    object::{
+        ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjNative, ObjString,
+        Pointer,
+    },
 };
 
-use super::{constant::ConstantValue, runtime_pointer::ObjectReference, RuntimeReference};
+use super::constant::ConstantValue;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum RuntimeValue {
     Bool(bool),
     Number(f64),
-    Object(ObjectReference),
+    BoundMethod(Pointer<ObjBoundMethod>),
+    Class(Pointer<ObjClass>),
+    Closure(Pointer<ObjClosure>),
+    Function(Pointer<ObjFunction>),
+    Instance(Pointer<ObjInstance>),
+    Native(Pointer<ObjNative>),
+    String(Pointer<ObjString>),
     #[default]
     Nil,
 }
@@ -64,45 +73,45 @@ impl From<usize> for RuntimeValue {
     }
 }
 
-impl From<ObjectReference> for RuntimeValue {
-    fn from(value: ObjectReference) -> Self {
-        Self::Object(value)
+impl From<Pointer<ObjBoundMethod>> for RuntimeValue {
+    fn from(value: Pointer<ObjBoundMethod>) -> Self {
+        Self::BoundMethod(value)
     }
 }
 
-impl From<RuntimeReference<ObjBoundMethod>> for RuntimeValue {
-    fn from(value: RuntimeReference<ObjBoundMethod>) -> Self {
-        Self::Object(value.into())
+impl From<Pointer<ObjClass>> for RuntimeValue {
+    fn from(value: Pointer<ObjClass>) -> Self {
+        Self::Class(value)
     }
 }
 
-impl From<RuntimeReference<ObjClass>> for RuntimeValue {
-    fn from(value: RuntimeReference<ObjClass>) -> Self {
-        Self::Object(value.into())
+impl From<Pointer<ObjClosure>> for RuntimeValue {
+    fn from(value: Pointer<ObjClosure>) -> Self {
+        Self::Closure(value)
     }
 }
 
-impl From<RuntimeReference<ObjClosure>> for RuntimeValue {
-    fn from(value: RuntimeReference<ObjClosure>) -> Self {
-        Self::Object(value.into())
+impl From<Pointer<ObjFunction>> for RuntimeValue {
+    fn from(value: Pointer<ObjFunction>) -> Self {
+        Self::Function(value)
     }
 }
 
-impl From<RuntimeReference<ObjFunction>> for RuntimeValue {
-    fn from(value: RuntimeReference<ObjFunction>) -> Self {
-        Self::Object(value.into())
+impl From<Pointer<ObjInstance>> for RuntimeValue {
+    fn from(value: Pointer<ObjInstance>) -> Self {
+        Self::Instance(value)
     }
 }
 
-impl From<RuntimeReference<ObjInstance>> for RuntimeValue {
-    fn from(value: RuntimeReference<ObjInstance>) -> Self {
-        Self::Object(value.into())
+impl From<Pointer<ObjNative>> for RuntimeValue {
+    fn from(value: Pointer<ObjNative>) -> Self {
+        Self::Native(value)
     }
 }
 
-impl From<RuntimeReference<ObjNative>> for RuntimeValue {
-    fn from(value: RuntimeReference<ObjNative>) -> Self {
-        Self::Object(value.into())
+impl From<Pointer<ObjString>> for RuntimeValue {
+    fn from(value: Pointer<ObjString>) -> Self {
+        Self::String(value)
     }
 }
 

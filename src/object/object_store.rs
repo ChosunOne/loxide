@@ -1,17 +1,14 @@
 use std::{
     collections::HashMap,
-    hash::{BuildHasherDefault, Hasher},
-    marker::PhantomData,
+    hash::{BuildHasherDefault, Hash, Hasher},
+    ops::{Deref, DerefMut},
     pin::Pin,
+    ptr::NonNull,
 };
 
-use crate::{
-    object::{
-        ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjNative, ObjString,
-        ObjUpvalue, Object,
-    },
-    value::{runtime_pointer::RuntimePointer, RuntimePointerMut, RuntimeReference},
-};
+use crate::{error::Error, value::RuntimeValue};
+
+use super::{ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjNative, ObjString};
 
 #[derive(Default)]
 struct PointerHasher(u64);
@@ -26,286 +23,150 @@ impl Hasher for PointerHasher {
     }
 }
 
-pub trait GetPointer<T> {
-    fn get_pointer(&self, key: RuntimeReference<T>) -> Option<RuntimePointer<T>>;
-    fn get_pointer_mut(&mut self, key: RuntimeReference<T>) -> Option<RuntimePointerMut<T>>;
-}
+#[derive(Debug)]
+pub struct Pointer<T>(NonNull<T>);
 
-#[derive(Default, Debug, PartialEq)]
-pub struct ObjectStore {
-    // This is kind of brilliant ngl
-    map: HashMap<*const Object, Pin<Box<Object>>, BuildHasherDefault<PointerHasher>>,
-}
+impl TryFrom<RuntimeValue> for Pointer<ObjBoundMethod> {
+    type Error = Error;
 
-impl ObjectStore {
-    pub fn insert<T: Into<Object>>(&mut self, value: T) -> RuntimePointerMut<T> {
-        let pinned_object = Box::pin(value.into());
-        let pinned_reference = &*pinned_object as *const Object;
-        self.map.insert(pinned_reference, pinned_object);
-        RuntimePointerMut::<T> {
-            object_store: self,
-            object_ref: pinned_reference,
-            _phantom: PhantomData,
+    fn try_from(value: RuntimeValue) -> Result<Self, Self::Error> {
+        match value {
+            RuntimeValue::BoundMethod(pointer) => Ok(pointer),
+            _ => Err(Error::Runtime),
         }
     }
+}
 
-    pub fn insert_pinned(&mut self, value: Pin<Box<Object>>) {
-        let pinned_reference = &*value as *const Object;
-        self.map.insert(pinned_reference, value);
+impl TryFrom<RuntimeValue> for Pointer<ObjClass> {
+    type Error = Error;
+
+    fn try_from(value: RuntimeValue) -> Result<Self, Self::Error> {
+        match value {
+            RuntimeValue::Class(pointer) => Ok(pointer),
+            _ => Err(Error::Runtime),
+        }
+    }
+}
+
+impl TryFrom<RuntimeValue> for Pointer<ObjClosure> {
+    type Error = Error;
+
+    fn try_from(value: RuntimeValue) -> Result<Self, Self::Error> {
+        match value {
+            RuntimeValue::Closure(pointer) => Ok(pointer),
+            _ => Err(Error::Runtime),
+        }
+    }
+}
+
+impl TryFrom<RuntimeValue> for Pointer<ObjFunction> {
+    type Error = Error;
+
+    fn try_from(value: RuntimeValue) -> Result<Self, Self::Error> {
+        match value {
+            RuntimeValue::Function(pointer) => Ok(pointer),
+            _ => Err(Error::Runtime),
+        }
+    }
+}
+
+impl TryFrom<RuntimeValue> for Pointer<ObjInstance> {
+    type Error = Error;
+
+    fn try_from(value: RuntimeValue) -> Result<Self, Self::Error> {
+        match value {
+            RuntimeValue::Instance(pointer) => Ok(pointer),
+            _ => Err(Error::Runtime),
+        }
+    }
+}
+
+impl TryFrom<RuntimeValue> for Pointer<ObjNative> {
+    type Error = Error;
+
+    fn try_from(value: RuntimeValue) -> Result<Self, Self::Error> {
+        match value {
+            RuntimeValue::Native(pointer) => Ok(pointer),
+            _ => Err(Error::Runtime),
+        }
+    }
+}
+
+impl TryFrom<RuntimeValue> for Pointer<ObjString> {
+    type Error = Error;
+
+    fn try_from(value: RuntimeValue) -> Result<Self, Self::Error> {
+        match value {
+            RuntimeValue::String(pointer) => Ok(pointer),
+            _ => Err(Error::Runtime),
+        }
+    }
+}
+
+impl<T> Clone for Pointer<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for Pointer<T> {}
+
+impl<T> Deref for Pointer<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl<T> DerefMut for Pointer<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { self.0.as_mut() }
+    }
+}
+
+impl<T> PartialEq for Pointer<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.eq(&other.0)
+    }
+}
+
+impl<T> Eq for Pointer<T> {}
+
+impl<T> Hash for Pointer<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state)
+    }
+}
+
+#[derive(Debug)]
+pub struct ObjectStore<T> {
+    map: HashMap<Pointer<T>, Pin<Box<T>>, BuildHasherDefault<PointerHasher>>,
+}
+
+impl<T> ObjectStore<T> {
+    pub fn insert(&mut self, value: T) -> Pointer<T> {
+        let pinned_object = Box::pin(value);
+        let pinned_ref = Pointer(NonNull::from(&*pinned_object));
+        self.map.insert(pinned_ref, pinned_object);
+        pinned_ref
     }
 
-    pub fn get(&self, key: *const Object) -> Option<&Object> {
-        self.map.get(&key).map(|v| &**v)
+    pub fn insert_pinned(&mut self, value: Pin<Box<T>>) -> Pointer<T> {
+        let pointer = Pointer(NonNull::from(&*value));
+        self.map.insert(pointer, value);
+        pointer
     }
 
-    pub fn get_mut(&mut self, key: *const Object) -> Option<&mut Object> {
-        self.map.get_mut(&key).map(|v| &mut **v)
-    }
-
-    pub fn free(&mut self, key: *const Object) {
+    pub fn free(&mut self, key: Pointer<T>) {
         self.map.remove(&key);
     }
 }
 
-impl GetPointer<String> for ObjectStore {
-    fn get_pointer(&self, key: RuntimeReference<String>) -> Option<RuntimePointer<String>> {
-        match self.get(key.object_ref)? {
-            Object::String(_) => Some(RuntimePointer {
-                object_store: self,
-                object_ref: key.object_ref,
-                _phantom: PhantomData,
-            }),
-            _ => None,
-        }
-    }
-    fn get_pointer_mut(
-        &mut self,
-        key: RuntimeReference<String>,
-    ) -> Option<RuntimePointerMut<String>> {
-        match self.get(key.object_ref)? {
-            Object::String(_) => Some(RuntimePointerMut {
-                object_store: self,
-                object_ref: key.object_ref,
-                _phantom: PhantomData,
-            }),
-            _ => None,
-        }
-    }
-}
-
-impl GetPointer<ObjString> for ObjectStore {
-    fn get_pointer(&self, key: RuntimeReference<ObjString>) -> Option<RuntimePointer<ObjString>> {
-        match self.get(key.object_ref)? {
-            Object::String(_) => Some(RuntimePointer {
-                object_store: self,
-                object_ref: key.object_ref,
-                _phantom: PhantomData,
-            }),
-            _ => None,
-        }
-    }
-    fn get_pointer_mut(
-        &mut self,
-        key: RuntimeReference<ObjString>,
-    ) -> Option<RuntimePointerMut<ObjString>> {
-        match self.get(key.object_ref)? {
-            Object::String(_) => Some(RuntimePointerMut {
-                object_store: self,
-                object_ref: key.object_ref,
-                _phantom: PhantomData,
-            }),
-            _ => None,
-        }
-    }
-}
-
-impl GetPointer<ObjBoundMethod> for ObjectStore {
-    fn get_pointer(
-        &self,
-        key: RuntimeReference<ObjBoundMethod>,
-    ) -> Option<RuntimePointer<ObjBoundMethod>> {
-        match self.get(key.object_ref)? {
-            Object::BoundMethod(_) => Some(RuntimePointer {
-                object_store: self,
-                object_ref: key.object_ref,
-                _phantom: PhantomData,
-            }),
-            _ => None,
-        }
-    }
-    fn get_pointer_mut(
-        &mut self,
-        key: RuntimeReference<ObjBoundMethod>,
-    ) -> Option<RuntimePointerMut<ObjBoundMethod>> {
-        match self.get(key.object_ref)? {
-            Object::BoundMethod(_) => Some(RuntimePointerMut {
-                object_store: self,
-                object_ref: key.object_ref,
-                _phantom: PhantomData,
-            }),
-            _ => None,
-        }
-    }
-}
-
-impl GetPointer<ObjClass> for ObjectStore {
-    fn get_pointer(&self, key: RuntimeReference<ObjClass>) -> Option<RuntimePointer<ObjClass>> {
-        match self.get(key.object_ref)? {
-            Object::Class(_) => Some(RuntimePointer {
-                object_store: self,
-                object_ref: key.object_ref,
-                _phantom: PhantomData,
-            }),
-            _ => None,
-        }
-    }
-    fn get_pointer_mut(
-        &mut self,
-        key: RuntimeReference<ObjClass>,
-    ) -> Option<RuntimePointerMut<ObjClass>> {
-        match self.get(key.object_ref)? {
-            Object::Class(_) => Some(RuntimePointerMut {
-                object_store: self,
-                object_ref: key.object_ref,
-                _phantom: PhantomData,
-            }),
-            _ => None,
-        }
-    }
-}
-
-impl GetPointer<ObjClosure> for ObjectStore {
-    fn get_pointer(&self, key: RuntimeReference<ObjClosure>) -> Option<RuntimePointer<ObjClosure>> {
-        match self.get(key.object_ref)? {
-            Object::Closure(_) => Some(RuntimePointer {
-                object_store: self,
-                object_ref: key.object_ref,
-                _phantom: PhantomData,
-            }),
-            _ => None,
-        }
-    }
-    fn get_pointer_mut(
-        &mut self,
-        key: RuntimeReference<ObjClosure>,
-    ) -> Option<RuntimePointerMut<ObjClosure>> {
-        match self.get(key.object_ref)? {
-            Object::Closure(_) => Some(RuntimePointerMut {
-                object_store: self,
-                object_ref: key.object_ref,
-                _phantom: PhantomData,
-            }),
-            _ => None,
-        }
-    }
-}
-
-impl GetPointer<ObjFunction> for ObjectStore {
-    fn get_pointer(
-        &self,
-        key: RuntimeReference<ObjFunction>,
-    ) -> Option<RuntimePointer<ObjFunction>> {
-        match self.get(key.object_ref)? {
-            Object::Function(_) => Some(RuntimePointer {
-                object_store: self,
-                object_ref: key.object_ref,
-                _phantom: PhantomData,
-            }),
-            _ => None,
-        }
-    }
-    fn get_pointer_mut(
-        &mut self,
-        key: RuntimeReference<ObjFunction>,
-    ) -> Option<RuntimePointerMut<ObjFunction>> {
-        match self.get(key.object_ref)? {
-            Object::Function(_) => Some(RuntimePointerMut {
-                object_store: self,
-                object_ref: key.object_ref,
-                _phantom: PhantomData,
-            }),
-            _ => None,
-        }
-    }
-}
-
-impl GetPointer<ObjInstance> for ObjectStore {
-    fn get_pointer(
-        &self,
-        key: RuntimeReference<ObjInstance>,
-    ) -> Option<RuntimePointer<ObjInstance>> {
-        match self.get(key.object_ref)? {
-            Object::Instance(_) => Some(RuntimePointer {
-                object_store: self,
-                object_ref: key.object_ref,
-                _phantom: PhantomData,
-            }),
-            _ => None,
-        }
-    }
-    fn get_pointer_mut(
-        &mut self,
-        key: RuntimeReference<ObjInstance>,
-    ) -> Option<RuntimePointerMut<ObjInstance>> {
-        match self.get(key.object_ref)? {
-            Object::Instance(_) => Some(RuntimePointerMut {
-                object_store: self,
-                object_ref: key.object_ref,
-                _phantom: PhantomData,
-            }),
-            _ => None,
-        }
-    }
-}
-
-impl GetPointer<ObjNative> for ObjectStore {
-    fn get_pointer(&self, key: RuntimeReference<ObjNative>) -> Option<RuntimePointer<ObjNative>> {
-        match self.get(key.object_ref)? {
-            Object::Native(_) => Some(RuntimePointer {
-                object_store: self,
-                object_ref: key.object_ref,
-                _phantom: PhantomData,
-            }),
-            _ => None,
-        }
-    }
-    fn get_pointer_mut(
-        &mut self,
-        key: RuntimeReference<ObjNative>,
-    ) -> Option<RuntimePointerMut<ObjNative>> {
-        match self.get(key.object_ref)? {
-            Object::Native(_) => Some(RuntimePointerMut {
-                object_store: self,
-                object_ref: key.object_ref,
-                _phantom: PhantomData,
-            }),
-            _ => None,
-        }
-    }
-}
-
-impl GetPointer<ObjUpvalue> for ObjectStore {
-    fn get_pointer(&self, key: RuntimeReference<ObjUpvalue>) -> Option<RuntimePointer<ObjUpvalue>> {
-        match self.get(key.object_ref)? {
-            Object::UpValue(_) => Some(RuntimePointer {
-                object_store: self,
-                object_ref: key.object_ref,
-                _phantom: PhantomData,
-            }),
-            _ => None,
-        }
-    }
-    fn get_pointer_mut(
-        &mut self,
-        key: RuntimeReference<ObjUpvalue>,
-    ) -> Option<RuntimePointerMut<ObjUpvalue>> {
-        match self.get(key.object_ref)? {
-            Object::UpValue(_) => Some(RuntimePointerMut {
-                object_store: self,
-                object_ref: key.object_ref,
-                _phantom: PhantomData,
-            }),
-            _ => None,
+impl<T> Default for ObjectStore<T> {
+    fn default() -> Self {
+        Self {
+            map: HashMap::<Pointer<T>, Pin<Box<T>>, BuildHasherDefault<PointerHasher>>::default(),
         }
     }
 }
@@ -319,7 +180,7 @@ mod test {
         let mut value_store = ObjectStore::default();
         let value = "test string value";
         let value_ref = value_store.insert(value);
-        let retrieved_value = &*value_ref;
+        let retrieved_value = *value_ref;
         assert_eq!(retrieved_value, "test string value")
     }
 
@@ -339,19 +200,9 @@ mod test {
     fn it_frees_a_value() {
         let mut value_store = ObjectStore::default();
         let value = "test string value";
-        let value_ref = value_store.insert(value).object_ref;
+        let value_ref = value_store.insert(value);
         value_store.free(value_ref);
-        let retrieved_value = value_store.get(value_ref);
+        let retrieved_value = value_store.map.get(&value_ref);
         assert!(retrieved_value.is_none())
-    }
-
-    #[test]
-    fn it_makes_a_string_reference_from_a_pointer() {
-        let mut value_store = ObjectStore::default();
-        let value = "test string value".to_owned();
-        let value_ptr = value_store.insert(value);
-        let value_ref: RuntimeReference<String> = (&value_ptr).into();
-        let value_ptr = value_store.get_pointer(value_ref).unwrap();
-        assert_eq!(&*value_ptr, "test string value");
     }
 }

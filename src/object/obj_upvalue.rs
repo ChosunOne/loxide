@@ -4,9 +4,9 @@ use std::fmt::Display;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ObjUpvalue {
     /// The location **in the stack** where this variable's value can be found.
-    Open(usize),
+    Open { location: usize },
     /// The value that is no longer on the stack ("closed").
-    Closed(RuntimeValue),
+    Closed { value: RuntimeValue },
 }
 
 impl Display for ObjUpvalue {

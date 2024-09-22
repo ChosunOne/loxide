@@ -1,6 +1,6 @@
 use std::{
     array,
-    collections::{BinaryHeap, HashMap},
+    collections::{BTreeMap, HashMap},
 };
 
 use crate::{
@@ -9,44 +9,41 @@ use crate::{
     compiler::Compiler,
     error::Error,
     object::{
-        object_store::GetPointer, ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance,
-        ObjNative, ObjString, ObjUpvalue, Object, ObjectStore,
+        ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjString, ObjUpvalue,
+        Pointer, Store,
     },
-    value::{
-        runtime_pointer::{ObjectReference, RuntimePointer},
-        ConstantValue, RuntimePointerMut, RuntimeReference, RuntimeValue,
-    },
+    value::{ConstantValue, RuntimeValue},
 };
 
 const MAX_FRAMES: usize = 64;
 const MAX_STACK_SIZE: usize = u8::MAX as usize * MAX_FRAMES;
 
 #[derive(Debug)]
-pub struct VM<'a> {
-    object_store: ObjectStore,
+pub struct VM {
+    store: Store,
     value_stack: [RuntimeValue; MAX_STACK_SIZE],
     frame_stack: [CallFrame; MAX_FRAMES],
     value_stack_top: usize,
     frame_stack_top: usize,
     globals: HashMap<String, RuntimeValue>,
-    open_upvalues: BinaryHeap<RuntimePointer<'a, ObjUpvalue>>,
+    open_upvalues: BTreeMap<usize, Pointer<ObjUpvalue>>,
 }
 
-impl Default for VM<'_> {
+impl Default for VM {
     fn default() -> Self {
         Self {
-            object_store: ObjectStore::default(),
+            store: Store::default(),
             value_stack: array::from_fn(|_| RuntimeValue::default()),
             frame_stack: array::from_fn(|_| CallFrame::default()),
             frame_stack_top: 0,
             value_stack_top: 0,
             globals: HashMap::default(),
-            open_upvalues: BinaryHeap::new(),
+            open_upvalues: BTreeMap::default(),
         }
     }
 }
 
-impl VM<'_> {
+impl VM {
     pub fn new() -> Self {
         Self::default()
     }
@@ -61,12 +58,11 @@ impl VM<'_> {
         #[cfg(feature = "debug")]
         println!("{}", function.chunk);
 
-        let function = Box::pin(Object::Function(function));
-        let function_ref = ObjectReference::from(RuntimeReference::<ObjFunction>::from(&*function));
+        let function = Box::pin(function);
+        let function_ref = self.store.insert_function_pinned(function);
         self.push_value(function_ref);
-        self.object_store.insert_pinned(function);
-        let closure = self.new_closure(function_ref.try_into()?);
-        self.pop_value();
+        let closure = self.new_closure(function_ref);
+        self.pop_value()?;
         self.push_value(closure);
         self.call(closure, 0)?;
         self.run()
@@ -75,16 +71,14 @@ impl VM<'_> {
     fn reset_stack(&mut self) {
         self.value_stack_top = 0;
         self.frame_stack_top = 0;
-        self.open_upvalues = BinaryHeap::new();
+        self.open_upvalues = BTreeMap::default();
     }
 
     fn runtime_error(&mut self, message: String) {
         eprintln!("{message}");
 
         while let Some(frame) = self.pop_frame() {
-            let function = self
-                .get_closure_function(frame.closure)
-                .expect("Failed to get frame closure.");
+            let function = (frame.closure.expect("Failed to get frame closure")).function;
             let line = function.chunk.lines[frame.ip];
             eprint!("[line {line}] in ");
             if let Some(name) = &function.name {
@@ -101,31 +95,13 @@ impl VM<'_> {
         &mut self.frame_stack[self.frame_stack_top]
     }
 
-    fn get_closure_function(
-        &self,
-        closure: RuntimeReference<ObjClosure>,
-    ) -> Option<RuntimePointer<'_, ObjFunction>> {
-        let function_ref = self.get_pointer(closure).map(|x| x.function)?;
-        self.get_pointer(function_ref)
-    }
-
-    fn get_closure_function_mut(
-        &mut self,
-        closure: RuntimeReference<ObjClosure>,
-    ) -> Option<RuntimePointerMut<'_, ObjFunction>> {
-        let function_ref = self.get_pointer(closure).map(|x| x.function)?;
-        self.get_pointer_mut(function_ref)
-    }
-
     fn read_byte(&mut self) -> Result<u8, Error> {
-        let closure = self.current_frame().closure;
+        let closure = self
+            .current_frame()
+            .closure
+            .expect("Failed to get currently executing closure");
         let ip = self.current_frame().ip;
-        let code = self
-            .get_closure_function(closure)
-            .ok_or(Error::Runtime)?
-            .chunk
-            .code[ip];
-
+        let code = closure.function.chunk.code[ip];
         self.current_frame().ip += 1;
         Ok(code)
     }
@@ -137,14 +113,12 @@ impl VM<'_> {
     }
 
     fn read_constant(&mut self) -> Result<ConstantValue, Error> {
-        let closure = self.current_frame().closure;
+        let closure = self
+            .current_frame()
+            .closure
+            .expect("Failed to get currently executing closure");
         let index = self.read_byte()?;
-        Ok(self
-            .get_closure_function(closure)
-            .ok_or(Error::Runtime)?
-            .chunk
-            .constants[index as usize]
-            .clone())
+        Ok(closure.function.chunk.constants[index as usize].clone())
     }
 
     fn read_string(&mut self) -> Result<ObjString, Error> {
@@ -155,32 +129,38 @@ impl VM<'_> {
         Ok(string)
     }
 
-    fn bind_method(
-        &mut self,
-        class: RuntimeReference<ObjClass>,
-        name: ObjString,
-    ) -> Result<(), Error> {
-        let methods = &self.get_pointer(class).ok_or(Error::Runtime)?.methods;
+    fn bind_method(&mut self, class: Pointer<ObjClass>, name: ObjString) -> Result<(), Error> {
+        let methods = &class.methods;
         let Some(&method) = methods.get(&name.chars) else {
             self.runtime_error(format!("Undefined property '{}'", &name.chars));
             return Err(Error::Runtime);
         };
 
-        let receiver = *self.peek_value(0).ok_or(Error::Runtime)?;
+        let receiver = *self.peek_value(0)?;
         let bound = self.new_bound_method(receiver, method);
-        self.pop_value();
+        self.pop_value()?;
         self.push_value(bound);
         Ok(())
     }
 
-    fn capture_upvalue(
-        &mut self,
-        local: impl Into<RuntimeValue>,
-    ) -> Result<RuntimeReference<ObjUpvalue>, Error> {
-        todo!()
+    fn capture_upvalue(&mut self, stack_index: usize) -> Result<Pointer<ObjUpvalue>, Error> {
+        let absolute_stack_index = self.value_stack_top - stack_index;
+        if let Some(&upvalue) = self.open_upvalues.get(&absolute_stack_index) {
+            return Ok(upvalue);
+        }
+
+        let upvalue = ObjUpvalue::Open {
+            location: absolute_stack_index,
+        };
+        let upvalue_ptr = self.store.insert_upvalue(upvalue);
+
+        self.open_upvalues.insert(absolute_stack_index, upvalue_ptr);
+        Ok(upvalue_ptr)
     }
 
-    fn close_upvalues(&mut self, last: impl Into<RuntimeValue>) -> Result<(), Error> {
+    fn close_upvalues(&mut self, last_stack_index: usize) -> Result<(), Error> {
+        // TODO: Iterate over the values in the open upvalues map in sorted order, and stop
+        // once the last stack index is reached
         todo!()
     }
 
@@ -193,29 +173,23 @@ impl VM<'_> {
     }
 
     fn invoke(&mut self, method_name: String, arg_count: usize) -> Result<(), Error> {
-        let receiver_ref = self
-            .peek_typed::<RuntimeReference<ObjInstance>>(arg_count)
-            .ok_or_else(|| {
-                self.runtime_error("Only instances have methods.".into());
-                Error::Runtime
-            })?;
-        let instance_fields = &self.get_pointer(receiver_ref).ok_or(Error::Runtime)?.fields;
+        let receiver = self.peek_typed::<Pointer<ObjInstance>>(arg_count)?;
+        let instance_fields = &receiver.fields;
         if let Some(&value) = instance_fields.get(&method_name) {
             self.value_stack[self.value_stack_top - arg_count - 1] = value;
             return self.call_value(value, arg_count);
         }
-        let class = self.get_pointer(receiver_ref).ok_or(Error::Runtime)?.class;
+        let class = receiver.class;
         self.invoke_from_class(class, method_name, arg_count)
     }
 
     fn invoke_from_class(
         &mut self,
-        class: RuntimeReference<ObjClass>,
+        class: Pointer<ObjClass>,
         method_name: String,
         arg_count: usize,
     ) -> Result<(), Error> {
-        let class_methods = &self.get_pointer(class).ok_or(Error::Runtime)?.methods;
-        let Some(&method) = class_methods.get(&method_name) else {
+        let Some(&method) = class.methods.get(&method_name) else {
             self.runtime_error("Undefined property {method_name}.".into());
             return Err(Error::Runtime);
         };
@@ -224,52 +198,33 @@ impl VM<'_> {
 
     fn call_value(&mut self, callee: RuntimeValue, arg_count: usize) -> Result<(), Error> {
         match callee {
-            RuntimeValue::Object(object_reference) => match object_reference {
-                ObjectReference::BoundMethod(runtime_reference) => {
-                    let receiver = self
-                        .get_pointer(runtime_reference)
-                        .ok_or(Error::Runtime)?
-                        .receiver;
-                    *self.peek_value(arg_count).ok_or(Error::Runtime)? = receiver;
-                    let method = self
-                        .get_pointer(runtime_reference)
-                        .ok_or(Error::Runtime)?
-                        .method;
-                    self.call(method, arg_count)
+            RuntimeValue::BoundMethod(bm) => {
+                *self.peek_value(arg_count)? = bm.receiver;
+                let method = bm.method;
+                self.call(method, arg_count)
+            }
+            RuntimeValue::Class(class) => {
+                let instance = self.new_instance(class);
+                *self.peek_value(arg_count)? = instance.into();
+                if let Some(&initializer) = class.methods.get("init") {
+                    self.call(initializer, arg_count)?;
+                } else if arg_count != 0 {
+                    self.runtime_error("Expected 0 arguments but got {arg_count}.".into());
+                    return Err(Error::Runtime);
                 }
-                ObjectReference::Class(runtime_reference) => {
-                    let instance = self.new_instance(runtime_reference);
-                    *self.peek_value(arg_count).ok_or(Error::Runtime)? = instance.into();
-                    let methods = &self
-                        .get_pointer(runtime_reference)
-                        .ok_or(Error::Runtime)?
-                        .methods;
-                    if let Some(&initializer) = methods.get("init") {
-                        self.call(initializer, arg_count)?;
-                    } else if arg_count != 0 {
-                        self.runtime_error("Expected 0 arguments but got {arg_count}.".into());
-                        return Err(Error::Runtime);
-                    }
-                    Ok(())
-                }
-                ObjectReference::Closure(runtime_reference) => {
-                    self.call(runtime_reference, arg_count)
-                }
-                ObjectReference::Native(runtime_reference) => {
-                    let args = (self.value_stack
-                        [self.value_stack_top - arg_count..self.value_stack_top])
-                        .to_vec();
-                    let native = self.get_pointer(runtime_reference).ok_or(Error::Runtime)?;
-                    let result = (native.function)(args);
-                    self.value_stack_top -= arg_count + 1;
-                    self.push_value(result);
-                    Ok(())
-                }
-                _ => {
-                    self.runtime_error("Can only call functions and classes.".into());
-                    Err(Error::Runtime)
-                }
-            },
+                Ok(())
+            }
+            RuntimeValue::Closure(closure) => self.call(closure, arg_count),
+            RuntimeValue::Native(native) => {
+                let args = (self.value_stack
+                    [self.value_stack_top - arg_count..self.value_stack_top])
+                    .to_vec();
+                let result = (native.function)(args);
+                self.value_stack_top -= arg_count + 1;
+                self.push_value(result);
+                Ok(())
+            }
+
             _ => {
                 self.runtime_error("Can only call functions and classes.".into());
                 Err(Error::Runtime)
@@ -287,11 +242,11 @@ impl VM<'_> {
                         ConstantValue::Number(n) => RuntimeValue::Number(n),
                         ConstantValue::String(s) => {
                             let obj_string = ObjString { chars: s };
-                            ObjectReference::from(self.object_store.insert(obj_string)).into()
+                            self.store.insert_string(obj_string).into()
                         }
                         ConstantValue::Function(f) => {
                             let obj_function = *f;
-                            ObjectReference::from(self.object_store.insert(obj_function)).into()
+                            self.store.insert_function(obj_function).into()
                         }
                     };
 
@@ -301,17 +256,17 @@ impl VM<'_> {
                 OpCode::True => self.push_value(RuntimeValue::Bool(true)),
                 OpCode::False => self.push_value(RuntimeValue::Bool(false)),
                 OpCode::Pop => {
-                    self.pop_value();
+                    self.pop_value()?;
                 }
                 OpCode::GetLocal => {
                     let slot = self.current_frame().slots - self.read_byte()? as usize;
-                    let value = *self.peek_value(slot).ok_or(Error::Runtime)?;
+                    let value = *self.peek_value(slot)?;
                     self.push_value(value);
                 }
                 OpCode::SetLocal => {
                     let slot = self.current_frame().slots - self.read_byte()? as usize;
-                    let value = *self.peek_value(0).ok_or(Error::Runtime)?;
-                    *self.peek_value(slot).ok_or(Error::Runtime)? = value;
+                    let value = *self.peek_value(0)?;
+                    *self.peek_value(slot)? = value;
                 }
                 OpCode::GetGlobal => {
                     let name = self.read_string()?;
@@ -330,51 +285,49 @@ impl VM<'_> {
                         self.runtime_error("Undefined variable '{name}'.".into());
                         return Err(Error::Runtime);
                     }
-                    let value = *self.peek_value(0).ok_or(Error::Runtime)?;
+                    let value = *self.peek_value(0)?;
                     self.globals.insert(name.chars, value);
                 }
                 OpCode::DefineGlobal => {
                     let name = self.read_string()?;
-                    let value = *self.peek_value(0).ok_or(Error::Runtime)?;
+                    let value = *self.peek_value(0)?;
                     self.globals.insert(name.chars, value);
                 }
                 OpCode::GetUpvalue => {
                     let slot = self.read_byte()? as usize;
                     let location = {
-                        let closure_ref = self.current_frame().closure;
-                        let closure = self.get_pointer(closure_ref).ok_or(Error::Runtime)?;
-                        let upvalue_ref = closure.upvalues[slot];
-                        match *self.get_pointer(upvalue_ref).ok_or(Error::Runtime)? {
-                            ObjUpvalue::Open(i) => i,
-                            ObjUpvalue::Closed(runtime_value) => todo!(),
+                        let closure = self
+                            .current_frame()
+                            .closure
+                            .expect("Failed to get currently executing closure");
+                        let upvalue = closure.upvalues[slot];
+                        match *upvalue {
+                            ObjUpvalue::Open { location } => location,
+                            ObjUpvalue::Closed { value: _ } => return Err(Error::Runtime),
                         }
                     };
                     self.push_value(location);
                 }
                 OpCode::SetUpvalue => {
                     let slot = self.read_byte()? as usize;
-                    let value = self.peek_typed::<usize>(0).ok_or(Error::Runtime)?;
-                    let mut upvalue = {
-                        let closure_ref = self.current_frame().closure;
-                        let closure = self.get_pointer(closure_ref).ok_or(Error::Runtime)?;
-                        let upvalue_ref = closure.upvalues[slot];
-                        self.get_pointer_mut(upvalue_ref).ok_or(Error::Runtime)?
-                    };
-                    *upvalue = ObjUpvalue::Open(value);
+                    let value = self.peek_typed::<usize>(0)?;
+                    let mut closure = self
+                        .current_frame()
+                        .closure
+                        .expect("Failed to get currently executing closure");
+                    *closure.upvalues[slot] = ObjUpvalue::Open { location: value };
                 }
                 OpCode::GetProperty => {
                     let name = self.read_string()?;
                     let instance = {
-                        let instance_ref = self
-                            .peek_typed::<RuntimeReference<ObjInstance>>(0)
-                            .ok_or_else(|| {
-                                self.runtime_error("Only instances have fields.".into());
-                                Error::Runtime
-                            })?;
-                        self.get_pointer(instance_ref).ok_or(Error::Runtime)?
+                        let Ok(instance_ref) = self.peek_typed::<Pointer<ObjInstance>>(0) else {
+                            self.runtime_error("Only instances have fields.".into());
+                            return Err(Error::Runtime);
+                        };
+                        instance_ref
                     };
                     if let Some(&v) = instance.fields.get(&name.chars) {
-                        self.pop_value(); // Instance
+                        self.pop_value()?; // Instance
                         self.push_value(v);
                         continue;
                     }
@@ -383,166 +336,129 @@ impl VM<'_> {
                     self.bind_method(class, name)?;
                 }
                 OpCode::SetProperty => {
-                    let instance_ref = self
-                        .peek_typed::<RuntimeReference<ObjInstance>>(1)
-                        .ok_or_else(|| {
-                            self.runtime_error("Only instances have fields.".into());
-                            Error::Runtime
-                        })?;
+                    let Ok(mut instance) = self.peek_typed::<Pointer<ObjInstance>>(1) else {
+                        self.runtime_error("Only instances have fields.".into());
+                        return Err(Error::Runtime);
+                    };
                     let name = self.read_string()?;
-                    let value = *self.peek_value(0).ok_or(Error::Runtime)?;
-                    let mut instance = self.get_pointer_mut(instance_ref).ok_or(Error::Runtime)?;
+                    let value = *self.peek_value(0)?;
                     instance.fields.insert(name.chars, value);
-                    let value = self.pop_value().ok_or(Error::Runtime)?;
-                    self.pop_value(); // Instance
+                    let value = self.pop_value()?;
+                    self.pop_value()?; // Instance
                     self.push_value(value);
                 }
                 OpCode::GetSuper => {
                     let name = self.read_string()?;
-                    let superclass = match self.pop_value().ok_or(Error::Runtime)? {
-                        RuntimeValue::Object(ObjectReference::Class(o)) => o,
+                    let superclass = match self.pop_value()? {
+                        RuntimeValue::Class(o) => o,
                         _ => return Err(Error::Runtime),
                     };
                     self.bind_method(superclass, name)?;
                 }
                 OpCode::Equal => {
-                    let a = self.pop_value().ok_or(Error::Runtime)?;
-                    let b = self.pop_value().ok_or(Error::Runtime)?;
+                    let a = self.pop_value()?;
+                    let b = self.pop_value()?;
                     self.push_value(a == b);
                 }
                 OpCode::Greater => {
-                    if self.peek_typed::<f64>(0).is_none() || self.peek_typed::<f64>(1).is_none() {
+                    if self.peek_typed::<f64>(0).is_err() || self.peek_typed::<f64>(1).is_err() {
                         self.runtime_error("Operands must be numbers".into());
                         return Err(Error::Runtime);
                     }
-                    let b = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
-                    let a = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
+                    let b = self.pop_typed::<f64>()?;
+                    let a = self.pop_typed::<f64>()?;
                     self.push_value(a > b);
                 }
                 OpCode::Less => {
-                    if self.peek_typed::<f64>(0).is_none() || self.peek_typed::<f64>(1).is_none() {
+                    if self.peek_typed::<f64>(0).is_err() || self.peek_typed::<f64>(1).is_err() {
                         self.runtime_error("Operands must be numbers".into());
                         return Err(Error::Runtime);
                     }
-                    let b = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
-                    let a = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
+                    let b = self.pop_typed::<f64>()?;
+                    let a = self.pop_typed::<f64>()?;
                     self.push_value(a < b);
                 }
                 OpCode::Add => {
-                    if self.peek_typed::<RuntimeReference<ObjString>>(0).is_some()
-                        && self.peek_typed::<RuntimeReference<ObjString>>(1).is_some()
+                    if self.peek_typed::<Pointer<ObjString>>(0).is_ok()
+                        && self.peek_typed::<Pointer<ObjString>>(1).is_ok()
                     {
                         self.concatenate()?;
                         continue;
                     }
 
-                    if self.peek_typed::<f64>(0).is_none() || self.peek_typed::<f64>(1).is_none() {
+                    if self.peek_typed::<f64>(0).is_err() || self.peek_typed::<f64>(1).is_err() {
                         self.runtime_error("Operands must be two numbers or two strings.".into());
                         return Err(Error::Runtime);
                     }
-                    let b = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
-                    let a = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
+                    let b = self.pop_typed::<f64>()?;
+                    let a = self.pop_typed::<f64>()?;
                     self.push_value(a + b);
                 }
                 OpCode::Subtract => {
-                    if self.peek_typed::<f64>(0).is_none() || self.peek_typed::<f64>(1).is_none() {
+                    if self.peek_typed::<f64>(0).is_err() || self.peek_typed::<f64>(1).is_err() {
                         self.runtime_error("Operands must be numbers".into());
                         return Err(Error::Runtime);
                     }
-                    let b = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
-                    let a = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
+                    let b = self.pop_typed::<f64>()?;
+                    let a = self.pop_typed::<f64>()?;
                     self.push_value(a - b);
                 }
                 OpCode::Multiply => {
-                    if self.peek_typed::<f64>(0).is_none() || self.peek_typed::<f64>(1).is_none() {
+                    if self.peek_typed::<f64>(0).is_err() || self.peek_typed::<f64>(1).is_err() {
                         self.runtime_error("Operands must be numbers".into());
                         return Err(Error::Runtime);
                     }
-                    let b = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
-                    let a = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
+                    let b = self.pop_typed::<f64>()?;
+                    let a = self.pop_typed::<f64>()?;
                     self.push_value(a * b);
                 }
                 OpCode::Divide => {
-                    if self.peek_typed::<f64>(0).is_none() || self.peek_typed::<f64>(1).is_none() {
+                    if self.peek_typed::<f64>(0).is_err() || self.peek_typed::<f64>(1).is_err() {
                         self.runtime_error("Operands must be numbers".into());
                         return Err(Error::Runtime);
                     }
-                    let b = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
-                    let a = self.pop_typed::<f64>().ok_or(Error::Runtime)?;
+                    let b = self.pop_typed::<f64>()?;
+                    let a = self.pop_typed::<f64>()?;
                     self.push_value(a / b);
                 }
                 OpCode::Not => {
-                    let value = self.pop_value().ok_or(Error::Runtime)?;
+                    let value = self.pop_value()?;
                     self.push_value(value.is_falsey());
                 }
                 OpCode::Negate => {
-                    let Some(value) = self.pop_typed::<f64>() else {
+                    let Ok(value) = self.pop_typed::<f64>() else {
                         self.runtime_error("Operand must be a number.".into());
                         return Err(Error::Runtime);
                     };
                     self.push_value(-value);
                 }
                 OpCode::Print => {
-                    let value = self.pop_value().ok_or(Error::Runtime)?;
+                    let value = self.pop_value()?;
                     match value {
                         RuntimeValue::Bool(b) => println!("{b}"),
                         RuntimeValue::Number(n) => println!("{n}"),
-                        RuntimeValue::Object(o) => match o {
-                            ObjectReference::BoundMethod(runtime_reference) => {
-                                let method_ref = self
-                                    .get_pointer(runtime_reference)
-                                    .ok_or(Error::Runtime)?
-                                    .method;
-                                let function_ptr = self
-                                    .get_closure_function(method_ref)
-                                    .ok_or(Error::Runtime)?;
-                                println!("{}", *function_ptr);
-                            }
-                            ObjectReference::Class(runtime_reference) => {
-                                let name_ref = self
-                                    .get_pointer(runtime_reference)
-                                    .ok_or(Error::Runtime)?
-                                    .name;
-                                let name_ptr = self.get_pointer(name_ref).ok_or(Error::Runtime)?;
-                                println!("{}", *name_ptr);
-                            }
-                            ObjectReference::Closure(runtime_reference) => {
-                                let function_ptr = self
-                                    .get_closure_function(runtime_reference)
-                                    .ok_or(Error::Runtime)?;
-                                println!("{}", *function_ptr);
-                            }
-                            ObjectReference::Function(runtime_reference) => {
-                                let function_ptr =
-                                    self.get_pointer(runtime_reference).ok_or(Error::Runtime)?;
-                                println!("{}", *function_ptr);
-                            }
-                            ObjectReference::Instance(runtime_reference) => {
-                                let class_ref = self
-                                    .get_pointer(runtime_reference)
-                                    .ok_or(Error::Runtime)?
-                                    .class;
-                                let name_ref =
-                                    self.get_pointer(class_ref).ok_or(Error::Runtime)?.name;
-                                let name = self.get_pointer(name_ref).ok_or(Error::Runtime)?;
-                                println!("{} instance", *name);
-                            }
-                            ObjectReference::Native(runtime_reference) => {
-                                let native_ptr =
-                                    self.get_pointer(runtime_reference).ok_or(Error::Runtime)?;
-                                println!("{}", *native_ptr);
-                            }
-                            ObjectReference::String(runtime_reference) => {
-                                let string_ptr =
-                                    self.get_pointer(runtime_reference).ok_or(Error::Runtime)?;
-                                println!("{}", *string_ptr);
-                            }
-                            ObjectReference::Upvalue(runtime_reference) => {
-                                let upvalue_ptr =
-                                    self.get_pointer(runtime_reference).ok_or(Error::Runtime)?;
-                                println!("{}", *upvalue_ptr);
-                            }
-                        },
+                        RuntimeValue::BoundMethod(bm) => {
+                            let method = bm.method.function;
+                            println!("{}", *method);
+                        }
+                        RuntimeValue::Class(class) => {
+                            println!("{}", *class.name);
+                        }
+                        RuntimeValue::Closure(closure) => {
+                            println!("{}", *closure);
+                        }
+                        RuntimeValue::Function(function) => {
+                            println!("{}", *function);
+                        }
+                        RuntimeValue::Instance(instance) => {
+                            println!("{} instance", *instance.class.name);
+                        }
+                        RuntimeValue::Native(native) => {
+                            println!("{}", *native);
+                        }
+                        RuntimeValue::String(string) => {
+                            println!("{}", *string);
+                        }
                         RuntimeValue::Nil => println!("nil"),
                     }
                 }
@@ -552,7 +468,7 @@ impl VM<'_> {
                 }
                 OpCode::JumpIfFalse => {
                     let offset = self.read_short()? as usize;
-                    if self.peek_value(0).ok_or(Error::Runtime)?.is_falsey() {
+                    if self.peek_value(0)?.is_falsey() {
                         self.current_frame().ip += offset;
                     }
                 }
@@ -562,7 +478,7 @@ impl VM<'_> {
                 }
                 OpCode::Call => {
                     let arg_count = self.read_byte()? as usize;
-                    let callee = *self.peek_value(arg_count).ok_or(Error::Runtime)?;
+                    let callee = *self.peek_value(arg_count)?;
                     self.call_value(callee, arg_count)?;
                     self.pop_frame().ok_or(Error::Runtime)?;
                     return Ok(());
@@ -577,9 +493,7 @@ impl VM<'_> {
                 OpCode::SuperInvoke => {
                     let method_name = self.read_string()?;
                     let arg_count = self.read_byte()? as usize;
-                    let class = self
-                        .pop_typed::<RuntimeReference<ObjClass>>()
-                        .ok_or(Error::Runtime)?;
+                    let class = self.pop_typed::<Pointer<ObjClass>>()?;
                     self.invoke_from_class(class, method_name.chars, arg_count)?;
                     self.pop_frame().ok_or(Error::Runtime)?;
                 }
@@ -587,42 +501,34 @@ impl VM<'_> {
                     let ConstantValue::Function(function) = self.read_constant()? else {
                         return Err(Error::Runtime);
                     };
-                    let function_ref = (&self.object_store.insert(*function)).into();
-                    let closure = self.new_closure(function_ref);
+                    let function = self.store.insert_function(*function);
+                    let mut closure = self.new_closure(function);
                     self.push_value(closure);
-                    let upvalue_count = self
-                        .get_pointer(closure)
-                        .ok_or(Error::Runtime)?
-                        .upvalues
-                        .len();
-                    let current_closure_ref = self.current_frame().closure;
+                    let upvalue_count = closure.upvalues.len();
+                    let current_closure = self
+                        .current_frame()
+                        .closure
+                        .expect("Failed to get currently executing closure");
                     for i in 0..upvalue_count {
                         let is_local = self.read_byte()? != 0;
                         let index = self.read_byte()? as usize;
                         if is_local {
-                            let slots = self.current_frame().slots + index;
-                            let upvalue = self.capture_upvalue(slots)?;
-                            self.get_pointer_mut(closure)
-                                .ok_or(Error::Runtime)?
-                                .upvalues[i] = upvalue;
+                            let stack_index = self.current_frame().slots - index;
+                            let upvalue = self.capture_upvalue(stack_index)?;
+                            closure.upvalues[i] = upvalue;
                         } else {
-                            let current_closure_upvalue = self
-                                .get_pointer(current_closure_ref)
-                                .ok_or(Error::Runtime)?
-                                .upvalues[index];
-                            self.get_pointer_mut(closure)
-                                .ok_or(Error::Runtime)?
-                                .upvalues[i] = current_closure_upvalue;
+                            let current_closure_upvalue = current_closure.upvalues[index];
+                            closure.upvalues[i] = current_closure_upvalue;
                         }
                     }
                 }
                 OpCode::CloseUpvalue => {
-                    let value = *self.peek_value(0).ok_or(Error::Runtime)?;
+                    let value = self.peek_typed::<usize>(0)?;
                     self.close_upvalues(value)?;
-                    self.pop_value().ok_or(Error::Runtime)?;
+                    self.pop_value()?;
                 }
                 OpCode::Return => {
-                    let result = self.pop_value().ok_or(Error::Runtime)?;
+                    let result = self.pop_value()?;
                     let slots = self.current_frame().slots;
                     self.close_upvalues(slots)?;
                     self.pop_frame().ok_or(Error::Runtime)?;
@@ -638,28 +544,20 @@ impl VM<'_> {
                     self.push_value(class);
                 }
                 OpCode::Inherit => {
-                    let Some(superclass) = self.peek_typed::<RuntimeReference<ObjClass>>(1) else {
+                    let Ok(superclass) = self.peek_typed::<Pointer<ObjClass>>(1) else {
                         self.runtime_error("Superclass must be a class.".into());
                         return Err(Error::Runtime);
                     };
-                    let subclass = self
-                        .peek_typed::<RuntimeReference<ObjClass>>(0)
-                        .ok_or(Error::Runtime)?;
-                    let methods: Vec<_> = self
-                        .get_pointer(superclass)
-                        .ok_or(Error::Runtime)?
+                    let mut subclass = self.peek_typed::<Pointer<ObjClass>>(0)?;
+                    let methods: Vec<_> = superclass
                         .methods
                         .iter()
                         .map(|x| (x.0.clone(), *x.1))
                         .collect();
-                    let subclass_methods = &mut self
-                        .get_pointer_mut(subclass)
-                        .ok_or(Error::Runtime)?
-                        .methods;
                     for (key, value) in methods {
-                        subclass_methods.insert(key, value);
+                        subclass.methods.insert(key, value);
                     }
-                    self.pop_value().ok_or(Error::Runtime)?; // Subclass
+                    self.pop_value()?; // Subclass
                 }
                 OpCode::Method => {
                     let name = self.read_string()?;
@@ -670,20 +568,8 @@ impl VM<'_> {
         }
     }
 
-    fn call(
-        &mut self,
-        closure: RuntimeReference<ObjClosure>,
-        arg_count: usize,
-    ) -> Result<(), Error> {
-        let arity = {
-            let function_ref = self
-                .get_pointer(closure)
-                .expect("Failed to get pointer")
-                .function;
-            self.get_pointer(function_ref)
-                .expect("Failed to get function pointer")
-                .arity
-        };
+    fn call(&mut self, closure: Pointer<ObjClosure>, arg_count: usize) -> Result<(), Error> {
+        let arity = closure.function.arity;
         if arg_count != arity {
             self.runtime_error(format!(
                 "Expected {} arguments but got {}.",
@@ -696,49 +582,42 @@ impl VM<'_> {
             return Err(Error::Runtime);
         }
         let frame = &mut self.frame_stack[self.frame_stack_top];
-        frame.closure = closure;
+        frame.closure = Some(closure);
         frame.slots = arg_count;
         self.frame_stack_top += 1;
         Ok(())
     }
 
-    fn new_class(&mut self, name: ObjString) -> RuntimeReference<ObjClass> {
-        let name_ref = (&self.object_store.insert(name)).into();
+    fn new_class(&mut self, name: ObjString) -> Pointer<ObjClass> {
+        let name_ref = self.store.insert_string(name);
         let class = ObjClass {
             name: name_ref,
             methods: HashMap::new(),
         };
-        (&self.object_store.insert(class)).into()
+        self.store.insert_class(class)
     }
 
-    fn new_closure(
-        &mut self,
-        function: RuntimeReference<ObjFunction>,
-    ) -> RuntimeReference<ObjClosure> {
-        let function_ptr = self
-            .object_store
-            .get_pointer(function)
-            .expect("Failed to get function pointer");
-        let upvalues = Vec::with_capacity(function_ptr.upvalue_count);
+    fn new_closure(&mut self, function: Pointer<ObjFunction>) -> Pointer<ObjClosure> {
+        let upvalues = Vec::with_capacity(function.upvalue_count);
         let closure = ObjClosure { function, upvalues };
-        (&self.object_store.insert(closure)).into()
+        self.store.insert_closure(closure)
     }
 
-    fn new_instance(&mut self, class: RuntimeReference<ObjClass>) -> RuntimeReference<ObjInstance> {
+    fn new_instance(&mut self, class: Pointer<ObjClass>) -> Pointer<ObjInstance> {
         let instance = ObjInstance {
             class,
             fields: HashMap::new(),
         };
-        (&self.object_store.insert(instance)).into()
+        self.store.insert_instance(instance)
     }
 
     fn new_bound_method(
         &mut self,
         receiver: RuntimeValue,
-        method: RuntimeReference<ObjClosure>,
-    ) -> RuntimeReference<ObjBoundMethod> {
+        method: Pointer<ObjClosure>,
+    ) -> Pointer<ObjBoundMethod> {
         let bound_method = ObjBoundMethod { receiver, method };
-        (&self.object_store.insert(bound_method)).into()
+        self.store.insert_bound_method(bound_method)
     }
 
     fn push_value(&mut self, value: impl Into<RuntimeValue>) {
@@ -757,133 +636,30 @@ impl VM<'_> {
         Some(self.frame_stack[self.frame_stack_top])
     }
 
-    fn pop_value(&mut self) -> Option<RuntimeValue> {
+    fn pop_value(&mut self) -> Result<RuntimeValue, Error> {
         if self.value_stack_top == 0 {
-            return None;
+            return Err(Error::Runtime);
         }
         self.value_stack_top -= 1;
-        Some(self.value_stack[self.value_stack_top])
+        Ok(self.value_stack[self.value_stack_top])
     }
 
-    fn peek_value(&mut self, distance: usize) -> Option<&mut RuntimeValue> {
+    fn peek_value(&mut self, distance: usize) -> Result<&mut RuntimeValue, Error> {
         if self.value_stack.is_empty() || distance > self.value_stack.len() - 1 {
-            return None;
+            return Err(Error::Runtime);
         }
         let index = self.value_stack.len() - 1 - distance;
-        self.value_stack.get_mut(index)
+        self.value_stack.get_mut(index).ok_or(Error::Runtime)
     }
 
-    fn peek_typed<T: TryFrom<RuntimeValue>>(&mut self, distance: usize) -> Option<T> {
-        (*self.peek_value(distance)?).try_into().ok()
-    }
-
-    fn pop_typed<T: TryFrom<RuntimeValue>>(&mut self) -> Option<T> {
-        self.pop_value()?.try_into().ok()
-    }
-}
-
-impl GetPointer<ObjBoundMethod> for VM<'_> {
-    fn get_pointer(
-        &self,
-        key: RuntimeReference<ObjBoundMethod>,
-    ) -> Option<RuntimePointer<ObjBoundMethod>> {
-        self.object_store.get_pointer(key)
-    }
-    fn get_pointer_mut(
+    fn peek_typed<T: TryFrom<RuntimeValue, Error = Error>>(
         &mut self,
-        key: RuntimeReference<ObjBoundMethod>,
-    ) -> Option<RuntimePointerMut<ObjBoundMethod>> {
-        self.object_store.get_pointer_mut(key)
-    }
-}
-
-impl GetPointer<ObjClass> for VM<'_> {
-    fn get_pointer(&self, key: RuntimeReference<ObjClass>) -> Option<RuntimePointer<ObjClass>> {
-        self.object_store.get_pointer(key)
+        distance: usize,
+    ) -> Result<T, Error> {
+        (*self.peek_value(distance)?).try_into()
     }
 
-    fn get_pointer_mut(
-        &mut self,
-        key: RuntimeReference<ObjClass>,
-    ) -> Option<RuntimePointerMut<ObjClass>> {
-        self.object_store.get_pointer_mut(key)
-    }
-}
-
-impl GetPointer<ObjClosure> for VM<'_> {
-    fn get_pointer(&self, key: RuntimeReference<ObjClosure>) -> Option<RuntimePointer<ObjClosure>> {
-        self.object_store.get_pointer(key)
-    }
-    fn get_pointer_mut(
-        &mut self,
-        key: RuntimeReference<ObjClosure>,
-    ) -> Option<RuntimePointerMut<ObjClosure>> {
-        self.object_store.get_pointer_mut(key)
-    }
-}
-
-impl GetPointer<ObjFunction> for VM<'_> {
-    fn get_pointer(
-        &self,
-        key: RuntimeReference<ObjFunction>,
-    ) -> Option<RuntimePointer<ObjFunction>> {
-        self.object_store.get_pointer(key)
-    }
-    fn get_pointer_mut(
-        &mut self,
-        key: RuntimeReference<ObjFunction>,
-    ) -> Option<RuntimePointerMut<ObjFunction>> {
-        self.object_store.get_pointer_mut(key)
-    }
-}
-
-impl GetPointer<ObjInstance> for VM<'_> {
-    fn get_pointer(
-        &self,
-        key: RuntimeReference<ObjInstance>,
-    ) -> Option<RuntimePointer<ObjInstance>> {
-        self.object_store.get_pointer(key)
-    }
-    fn get_pointer_mut(
-        &mut self,
-        key: RuntimeReference<ObjInstance>,
-    ) -> Option<RuntimePointerMut<ObjInstance>> {
-        self.object_store.get_pointer_mut(key)
-    }
-}
-
-impl GetPointer<ObjNative> for VM<'_> {
-    fn get_pointer(&self, key: RuntimeReference<ObjNative>) -> Option<RuntimePointer<ObjNative>> {
-        self.object_store.get_pointer(key)
-    }
-    fn get_pointer_mut(
-        &mut self,
-        key: RuntimeReference<ObjNative>,
-    ) -> Option<RuntimePointerMut<ObjNative>> {
-        self.object_store.get_pointer_mut(key)
-    }
-}
-
-impl GetPointer<ObjString> for VM<'_> {
-    fn get_pointer(&self, key: RuntimeReference<ObjString>) -> Option<RuntimePointer<ObjString>> {
-        self.object_store.get_pointer(key)
-    }
-    fn get_pointer_mut(
-        &mut self,
-        key: RuntimeReference<ObjString>,
-    ) -> Option<RuntimePointerMut<ObjString>> {
-        self.object_store.get_pointer_mut(key)
-    }
-}
-
-impl GetPointer<ObjUpvalue> for VM<'_> {
-    fn get_pointer(&self, key: RuntimeReference<ObjUpvalue>) -> Option<RuntimePointer<ObjUpvalue>> {
-        self.object_store.get_pointer(key)
-    }
-    fn get_pointer_mut(
-        &mut self,
-        key: RuntimeReference<ObjUpvalue>,
-    ) -> Option<RuntimePointerMut<ObjUpvalue>> {
-        self.object_store.get_pointer_mut(key)
+    fn pop_typed<T: TryFrom<RuntimeValue, Error = Error>>(&mut self) -> Result<T, Error> {
+        self.pop_value()?.try_into()
     }
 }

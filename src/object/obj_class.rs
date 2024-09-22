@@ -1,11 +1,10 @@
-use crate::{
-    object::{ObjClosure, ObjString},
-    value::RuntimeReference,
-};
+use crate::object::{ObjClosure, ObjString};
 use std::collections::HashMap;
+
+use super::Pointer;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ObjClass {
-    pub name: RuntimeReference<ObjString>,
-    pub methods: HashMap<String, RuntimeReference<ObjClosure>>,
+    pub name: Pointer<ObjString>,
+    pub methods: HashMap<String, Pointer<ObjClosure>>,
 }
