@@ -1,10 +1,10 @@
 use loxide::{error::Error, vm::VM};
 use std::{
     env, fs,
-    io::{stdin, stdout, Write},
+    io::{stderr, stdin, stdout, Write},
 };
 
-fn repl(mut vm: VM) {
+fn repl<Out: Write, EOut: Write>(mut vm: VM<Out, EOut>) {
     loop {
         let mut line = String::new();
         print!("> ");
@@ -16,13 +16,13 @@ fn repl(mut vm: VM) {
     }
 }
 
-fn run_file(path: &str, mut vm: VM) -> Result<(), Error> {
+fn run_file<Out: Write, EOut: Write>(path: &str, mut vm: VM<Out, EOut>) -> Result<(), Error> {
     let source = fs::read_to_string(path).expect("Failed to read file.");
     vm.interpret(&source)
 }
 
 fn main() -> Result<(), Error> {
-    let vm = VM::new();
+    let vm = VM::new(stdout(), stderr());
     let args: Vec<String> = env::args().collect();
     if args.len() == 1 {
         repl(vm);

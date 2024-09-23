@@ -3,7 +3,7 @@ use std::{
     collections::HashMap,
     fmt::Display,
     hash::{BuildHasherDefault, Hash, Hasher},
-    ops::{Deref, DerefMut},
+    ops::Deref,
     rc::Rc,
 };
 
@@ -157,12 +157,6 @@ impl<T> Deref for Pointer<T> {
 
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-impl<T> DerefMut for Pointer<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        todo!()
     }
 }
 

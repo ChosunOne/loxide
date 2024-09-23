@@ -2,6 +2,7 @@ use std::{
     array,
     cell::RefCell,
     collections::{BTreeMap, HashMap},
+    io::Write,
     rc::Rc,
 };
 
@@ -21,7 +22,7 @@ const MAX_FRAMES: usize = 64;
 const MAX_STACK_SIZE: usize = u8::MAX as usize * MAX_FRAMES;
 
 #[derive(Debug)]
-pub struct VM {
+pub struct VM<Out: Write, EOut: Write> {
     store: Store,
     value_stack: [RuntimeValue; MAX_STACK_SIZE],
     frame_stack: [CallFrame; MAX_FRAMES],
@@ -29,10 +30,12 @@ pub struct VM {
     frame_stack_top: usize,
     globals: HashMap<String, RuntimeValue>,
     open_upvalues: BTreeMap<usize, Pointer<ObjUpvalue>>,
+    out: Out,
+    e_out: EOut,
 }
 
-impl Default for VM {
-    fn default() -> Self {
+impl<Out: Write, EOut: Write> VM<Out, EOut> {
+    pub fn new(out: Out, e_out: EOut) -> Self {
         Self {
             store: Store::default(),
             value_stack: array::from_fn(|_| RuntimeValue::default()),
@@ -41,24 +44,20 @@ impl Default for VM {
             value_stack_top: 0,
             globals: HashMap::default(),
             open_upvalues: BTreeMap::default(),
+            out,
+            e_out,
         }
-    }
-}
-
-impl VM {
-    pub fn new() -> Self {
-        Self::default()
     }
 
     pub fn interpret(&mut self, source: &str) -> Result<(), Error> {
         #[cfg(feature = "debug")]
-        println!("========== CODE ==========");
+        self.println("========== CODE ==========")?;
         let compiler = Compiler::new(source.into());
 
         let function = compiler.compile()?;
 
         #[cfg(feature = "debug")]
-        println!("{}", function.chunk);
+        self.println(format!("{}", function.chunk))?;
 
         let function = Rc::new(RefCell::new(function));
         let function_ref = self.store.insert_function_pointer(function);
@@ -70,6 +69,24 @@ impl VM {
         self.run()
     }
 
+    fn println(&mut self, string: impl Into<String>) -> Result<(), Error> {
+        let string: String = string.into() + "\n";
+        self.out
+            .write_all(string.as_bytes())
+            .expect("Failed to write data");
+        self.out.flush().expect("Failed to flush data");
+        Ok(())
+    }
+
+    fn eprint(&mut self, string: impl Into<String>) -> Result<(), Error> {
+        let string: String = string.into();
+        self.e_out
+            .write_all(string.as_bytes())
+            .expect("Failed to write data");
+        self.e_out.flush().expect("Failed to flush data");
+        Ok(())
+    }
+
     fn reset_stack(&mut self) {
         self.value_stack_top = 0;
         self.frame_stack_top = 0;
@@ -77,7 +94,7 @@ impl VM {
     }
 
     fn runtime_error(&mut self, message: String) {
-        eprintln!("{message}");
+        self.eprint(message).expect("Failed to print error");
 
         while let Some(frame) = self.pop_frame() {
             let function = frame
@@ -87,11 +104,13 @@ impl VM {
                 .function
                 .clone();
             let line = function.borrow().chunk.lines[frame.ip];
-            eprint!("[line {line}] in ");
+            self.eprint(format!("[line {line}] in "))
+                .expect("Failed to print error");
             if let Some(name) = function.borrow().name.as_ref() {
-                eprintln!("{name}");
+                self.eprint(format!("{name}\n"))
+                    .expect("Failed to print error");
             } else {
-                eprintln!("script");
+                self.eprint("script").expect("Failed to print error");
             };
         }
 
@@ -99,11 +118,11 @@ impl VM {
     }
 
     fn current_frame(&self) -> &CallFrame {
-        &self.frame_stack[self.frame_stack_top]
+        &self.frame_stack[self.frame_stack_top - 1]
     }
 
     fn current_frame_mut(&mut self) -> &mut CallFrame {
-        &mut self.frame_stack[self.frame_stack_top]
+        &mut self.frame_stack[self.frame_stack_top - 1]
     }
 
     fn read_byte(&mut self) -> Result<u8, Error> {
@@ -202,7 +221,14 @@ impl VM {
     }
 
     fn concatenate(&mut self) -> Result<(), Error> {
-        todo!()
+        let b = self.peek_typed::<Pointer<ObjString>>(0)?;
+        let a = self.peek_typed::<Pointer<ObjString>>(1)?;
+        let result = a.borrow().chars.clone() + &b.borrow().chars;
+        let new_string = self.store.insert_string(ObjString { chars: result });
+        self.pop_value()?;
+        self.pop_value()?;
+        self.push_value(new_string);
+        Ok(())
     }
 
     fn invoke(&mut self, method_name: String, arg_count: usize) -> Result<(), Error> {
@@ -479,30 +505,30 @@ impl VM {
                 OpCode::Print => {
                     let value = self.pop_value()?;
                     match value {
-                        RuntimeValue::Bool(b) => println!("{b}"),
-                        RuntimeValue::Number(n) => println!("{n}"),
+                        RuntimeValue::Bool(b) => self.println(format!("{b}"))?,
+                        RuntimeValue::Number(n) => self.println(format!("{n}"))?,
                         RuntimeValue::BoundMethod(bm) => {
-                            println!("{bm}",);
+                            self.println(format!("{bm}"))?;
                         }
                         RuntimeValue::Class(class) => {
-                            println!("{class}");
+                            self.println(format!("{class}"))?;
                         }
                         RuntimeValue::Closure(closure) => {
-                            println!("{closure}");
+                            self.println(format!("{closure}"))?;
                         }
                         RuntimeValue::Function(function) => {
-                            println!("{function}");
+                            self.println(format!("{function}"))?;
                         }
                         RuntimeValue::Instance(instance) => {
-                            println!("{instance}");
+                            self.println(format!("{instance}"))?;
                         }
                         RuntimeValue::Native(native) => {
-                            println!("{native}");
+                            self.println(format!("{native}"))?;
                         }
                         RuntimeValue::String(string) => {
-                            println!("{string}");
+                            self.println(format!("{string}"))?;
                         }
-                        RuntimeValue::Nil => println!("nil"),
+                        RuntimeValue::Nil => self.println("nil")?,
                     }
                 }
                 OpCode::Jump => {
@@ -712,5 +738,71 @@ impl VM {
 
     fn pop_typed<T: TryFrom<RuntimeValue, Error = Error>>(&mut self) -> Result<T, Error> {
         self.pop_value()?.try_into()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[derive(Debug, Default)]
+    struct TestOut {
+        buf: Vec<u8>,
+        flushed: Vec<Vec<u8>>,
+    }
+
+    impl Write for TestOut {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.buf = buf.into();
+            Ok(self.buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            let buf = self.buf.clone();
+            self.flushed.push(buf);
+            self.buf = Vec::new();
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn it_runs_an_empty_program() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = "";
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run empty program");
+    }
+
+    #[test]
+    fn it_runs_a_program_with_a_single_expression_statement() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = "1;";
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run program");
+    }
+
+    #[test]
+    fn it_runs_a_program_with_a_print_statement() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = "print 1;";
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run program");
+
+        assert!(!vm.out.flushed.is_empty());
+        assert_eq!(vm.out.flushed[0], "1\n".as_bytes());
+    }
+
+    #[test]
+    fn it_runs_a_program_with_scopes() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = "var a = 1; { var b = a; print b; }";
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run program");
+        assert!(!vm.out.flushed.is_empty());
+        assert_eq!(vm.out.flushed[0], "1\n".as_bytes());
     }
 }
