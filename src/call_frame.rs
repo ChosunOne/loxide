@@ -1,6 +1,6 @@
 use crate::object::{ObjClosure, Pointer};
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct CallFrame {
     /// A reference to the currently executing closure
     pub(crate) closure: Option<Pointer<ObjClosure>>,

@@ -8,7 +8,7 @@ use crate::{
 
 use super::constant::ConstantValue;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum RuntimeValue {
     Bool(bool),
     Number(f64),

@@ -1,9 +1,10 @@
 use std::{
+    cell::RefCell,
     collections::HashMap,
+    fmt::Display,
     hash::{BuildHasherDefault, Hash, Hasher},
     ops::{Deref, DerefMut},
-    pin::Pin,
-    ptr::NonNull,
+    rc::Rc,
 };
 
 use crate::{error::Error, value::RuntimeValue};
@@ -24,7 +25,49 @@ impl Hasher for PointerHasher {
 }
 
 #[derive(Debug)]
-pub struct Pointer<T>(NonNull<T>);
+pub struct Pointer<T>(Rc<RefCell<T>>);
+
+impl Display for Pointer<ObjBoundMethod> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.borrow())
+    }
+}
+
+impl Display for Pointer<ObjClass> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.borrow())
+    }
+}
+
+impl Display for Pointer<ObjClosure> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.borrow())
+    }
+}
+
+impl Display for Pointer<ObjFunction> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.borrow())
+    }
+}
+
+impl Display for Pointer<ObjInstance> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.borrow())
+    }
+}
+
+impl Display for Pointer<ObjNative> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.borrow())
+    }
+}
+
+impl Display for Pointer<ObjString> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.borrow())
+    }
+}
 
 impl TryFrom<RuntimeValue> for Pointer<ObjBoundMethod> {
     type Error = Error;
@@ -105,29 +148,27 @@ impl TryFrom<RuntimeValue> for Pointer<ObjString> {
 
 impl<T> Clone for Pointer<T> {
     fn clone(&self) -> Self {
-        *self
+        Self(Rc::clone(&self.0))
     }
 }
 
-impl<T> Copy for Pointer<T> {}
-
 impl<T> Deref for Pointer<T> {
-    type Target = T;
+    type Target = RefCell<T>;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { self.0.as_ref() }
+        &self.0
     }
 }
 
 impl<T> DerefMut for Pointer<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { self.0.as_mut() }
+        todo!()
     }
 }
 
 impl<T> PartialEq for Pointer<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.0.eq(&other.0)
+        self.0.as_ptr().eq(&other.0.as_ptr())
     }
 }
 
@@ -135,26 +176,26 @@ impl<T> Eq for Pointer<T> {}
 
 impl<T> Hash for Pointer<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.hash(state)
+        self.0.as_ptr().hash(state)
     }
 }
 
 #[derive(Debug)]
 pub struct ObjectStore<T> {
-    map: HashMap<Pointer<T>, Pin<Box<T>>, BuildHasherDefault<PointerHasher>>,
+    map: HashMap<Pointer<T>, Rc<RefCell<T>>, BuildHasherDefault<PointerHasher>>,
 }
 
 impl<T> ObjectStore<T> {
     pub fn insert(&mut self, value: T) -> Pointer<T> {
-        let pinned_object = Box::pin(value);
-        let pinned_ref = Pointer(NonNull::from(&*pinned_object));
-        self.map.insert(pinned_ref, pinned_object);
-        pinned_ref
+        let object = Rc::new(RefCell::new(value));
+        let pointer = Pointer(Rc::clone(&object));
+        self.map.insert(pointer.clone(), object);
+        pointer
     }
 
-    pub fn insert_pinned(&mut self, value: Pin<Box<T>>) -> Pointer<T> {
-        let pointer = Pointer(NonNull::from(&*value));
-        self.map.insert(pointer, value);
+    pub fn insert_pointer(&mut self, value: Rc<RefCell<T>>) -> Pointer<T> {
+        let pointer = Pointer(Rc::clone(&value));
+        self.map.insert(pointer.clone(), value);
         pointer
     }
 
@@ -166,7 +207,8 @@ impl<T> ObjectStore<T> {
 impl<T> Default for ObjectStore<T> {
     fn default() -> Self {
         Self {
-            map: HashMap::<Pointer<T>, Pin<Box<T>>, BuildHasherDefault<PointerHasher>>::default(),
+            map: HashMap::<Pointer<T>, Rc<RefCell<T>>, BuildHasherDefault<PointerHasher>>::default(
+            ),
         }
     }
 }
@@ -180,19 +222,19 @@ mod test {
         let mut value_store = ObjectStore::default();
         let value = "test string value";
         let value_ref = value_store.insert(value);
-        let retrieved_value = *value_ref;
-        assert_eq!(retrieved_value, "test string value")
+        let retrieved_value = *value_ref.borrow();
+        assert_eq!(retrieved_value, "test string value");
     }
 
     #[test]
     fn it_gets_a_mutable_string() {
         let mut value_store = ObjectStore::default();
         let value = "test string value".to_owned();
-        let mut value_ref = value_store.insert(value);
+        let value_ref = value_store.insert(value);
         {
-            *value_ref += " mutated";
+            *value_ref.borrow_mut() += " mutated";
         }
-        let retrieved_value = &*value_ref;
+        let retrieved_value = value_ref.borrow().clone();
         assert_eq!(retrieved_value, "test string value mutated")
     }
 
@@ -201,7 +243,7 @@ mod test {
         let mut value_store = ObjectStore::default();
         let value = "test string value";
         let value_ref = value_store.insert(value);
-        value_store.free(value_ref);
+        value_store.free(value_ref.clone());
         let retrieved_value = value_store.map.get(&value_ref);
         assert!(retrieved_value.is_none())
     }

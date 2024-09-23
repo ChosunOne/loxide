@@ -1,7 +1,7 @@
 use crate::value::RuntimeValue;
 use std::fmt::Display;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ObjUpvalue {
     /// The location **in the stack** where this variable's value can be found.
     Open { location: usize },

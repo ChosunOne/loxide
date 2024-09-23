@@ -1,6 +1,8 @@
 use std::{
     array,
+    cell::RefCell,
     collections::{BTreeMap, HashMap},
+    rc::Rc,
 };
 
 use crate::{
@@ -58,12 +60,12 @@ impl VM {
         #[cfg(feature = "debug")]
         println!("{}", function.chunk);
 
-        let function = Box::pin(function);
-        let function_ref = self.store.insert_function_pinned(function);
-        self.push_value(function_ref);
+        let function = Rc::new(RefCell::new(function));
+        let function_ref = self.store.insert_function_pointer(function);
+        self.push_value(function_ref.clone());
         let closure = self.new_closure(function_ref);
         self.pop_value()?;
-        self.push_value(closure);
+        self.push_value(closure.clone());
         self.call(closure, 0)?;
         self.run()
     }
@@ -78,20 +80,29 @@ impl VM {
         eprintln!("{message}");
 
         while let Some(frame) = self.pop_frame() {
-            let function = (frame.closure.expect("Failed to get frame closure")).function;
-            let line = function.chunk.lines[frame.ip];
+            let function = frame
+                .closure
+                .expect("Failed to get frame closure")
+                .borrow()
+                .function
+                .clone();
+            let line = function.borrow().chunk.lines[frame.ip];
             eprint!("[line {line}] in ");
-            if let Some(name) = &function.name {
+            if let Some(name) = function.borrow().name.as_ref() {
                 eprintln!("{name}");
             } else {
                 eprintln!("script");
-            }
+            };
         }
 
         self.reset_stack();
     }
 
-    fn current_frame(&mut self) -> &mut CallFrame {
+    fn current_frame(&self) -> &CallFrame {
+        &self.frame_stack[self.frame_stack_top]
+    }
+
+    fn current_frame_mut(&mut self) -> &mut CallFrame {
         &mut self.frame_stack[self.frame_stack_top]
     }
 
@@ -99,10 +110,11 @@ impl VM {
         let closure = self
             .current_frame()
             .closure
+            .clone()
             .expect("Failed to get currently executing closure");
         let ip = self.current_frame().ip;
-        let code = closure.function.chunk.code[ip];
-        self.current_frame().ip += 1;
+        let code = closure.borrow().function.borrow().chunk.code[ip];
+        self.current_frame_mut().ip += 1;
         Ok(code)
     }
 
@@ -116,9 +128,12 @@ impl VM {
         let closure = self
             .current_frame()
             .closure
+            .clone()
             .expect("Failed to get currently executing closure");
         let index = self.read_byte()?;
-        Ok(closure.function.chunk.constants[index as usize].clone())
+        let function = closure.borrow().function.clone();
+        let constant = function.borrow().chunk.constants[index as usize].clone();
+        Ok(constant)
     }
 
     fn read_string(&mut self) -> Result<ObjString, Error> {
@@ -130,14 +145,14 @@ impl VM {
     }
 
     fn bind_method(&mut self, class: Pointer<ObjClass>, name: ObjString) -> Result<(), Error> {
-        let methods = &class.methods;
-        let Some(&method) = methods.get(&name.chars) else {
+        let class = class.borrow();
+        let Some(method) = class.methods.get(&name.chars) else {
             self.runtime_error(format!("Undefined property '{}'", &name.chars));
             return Err(Error::Runtime);
         };
 
-        let receiver = *self.peek_value(0)?;
-        let bound = self.new_bound_method(receiver, method);
+        let receiver = self.peek_value(0)?.clone();
+        let bound = self.new_bound_method(receiver, method.clone());
         self.pop_value()?;
         self.push_value(bound);
         Ok(())
@@ -145,8 +160,8 @@ impl VM {
 
     fn capture_upvalue(&mut self, stack_index: usize) -> Result<Pointer<ObjUpvalue>, Error> {
         let absolute_stack_index = self.value_stack_top - stack_index;
-        if let Some(&upvalue) = self.open_upvalues.get(&absolute_stack_index) {
-            return Ok(upvalue);
+        if let Some(upvalue) = self.open_upvalues.get(&absolute_stack_index) {
+            return Ok(upvalue.clone());
         }
 
         let upvalue = ObjUpvalue::Open {
@@ -154,18 +169,36 @@ impl VM {
         };
         let upvalue_ptr = self.store.insert_upvalue(upvalue);
 
-        self.open_upvalues.insert(absolute_stack_index, upvalue_ptr);
+        self.open_upvalues
+            .insert(absolute_stack_index, upvalue_ptr.clone());
         Ok(upvalue_ptr)
     }
 
     fn close_upvalues(&mut self, last_stack_index: usize) -> Result<(), Error> {
-        // TODO: Iterate over the values in the open upvalues map in sorted order, and stop
-        // once the last stack index is reached
-        todo!()
+        let abs_last_stack_index = self.value_stack.len() - last_stack_index;
+        let mut closed_upvalues = Vec::new();
+        for (&abs_stack_index, open_upvalue) in self.open_upvalues.iter_mut().rev() {
+            if abs_stack_index < abs_last_stack_index {
+                break;
+            }
+            let referenced_value = self.value_stack[abs_stack_index].clone();
+            *open_upvalue.borrow_mut() = ObjUpvalue::Closed {
+                value: referenced_value,
+            };
+            closed_upvalues.push(abs_stack_index);
+        }
+        for closed_upvalue in closed_upvalues {
+            self.open_upvalues.remove(&closed_upvalue);
+        }
+        Ok(())
     }
 
     fn define_method(&mut self, name: String) -> Result<(), Error> {
-        todo!()
+        let method = self.peek_typed::<Pointer<ObjClosure>>(0)?;
+        let class = self.peek_typed::<Pointer<ObjClass>>(1)?;
+        class.borrow_mut().methods.insert(name, method);
+        self.pop_value()?;
+        Ok(())
     }
 
     fn concatenate(&mut self) -> Result<(), Error> {
@@ -174,12 +207,12 @@ impl VM {
 
     fn invoke(&mut self, method_name: String, arg_count: usize) -> Result<(), Error> {
         let receiver = self.peek_typed::<Pointer<ObjInstance>>(arg_count)?;
-        let instance_fields = &receiver.fields;
-        if let Some(&value) = instance_fields.get(&method_name) {
-            self.value_stack[self.value_stack_top - arg_count - 1] = value;
-            return self.call_value(value, arg_count);
+        let instance_fields = &receiver.borrow().fields;
+        if let Some(value) = instance_fields.get(&method_name) {
+            self.value_stack[self.value_stack_top - arg_count - 1] = value.clone();
+            return self.call_value(value.clone(), arg_count);
         }
-        let class = receiver.class;
+        let class = receiver.borrow().class.clone();
         self.invoke_from_class(class, method_name, arg_count)
     }
 
@@ -189,25 +222,27 @@ impl VM {
         method_name: String,
         arg_count: usize,
     ) -> Result<(), Error> {
-        let Some(&method) = class.methods.get(&method_name) else {
+        let class = class.borrow();
+        let Some(method) = class.methods.get(&method_name) else {
             self.runtime_error("Undefined property {method_name}.".into());
             return Err(Error::Runtime);
         };
-        self.call(method, arg_count)
+        self.call(method.clone(), arg_count)
     }
 
     fn call_value(&mut self, callee: RuntimeValue, arg_count: usize) -> Result<(), Error> {
         match callee {
             RuntimeValue::BoundMethod(bm) => {
-                *self.peek_value(arg_count)? = bm.receiver;
-                let method = bm.method;
+                *self.peek_value(arg_count)? = bm.borrow().receiver.clone();
+                let method = bm.borrow().method.clone();
                 self.call(method, arg_count)
             }
             RuntimeValue::Class(class) => {
-                let instance = self.new_instance(class);
+                let instance = self.new_instance(class.clone());
                 *self.peek_value(arg_count)? = instance.into();
-                if let Some(&initializer) = class.methods.get("init") {
-                    self.call(initializer, arg_count)?;
+                let class = class.borrow();
+                if let Some(initializer) = class.methods.get("init") {
+                    self.call(initializer.clone(), arg_count)?;
                 } else if arg_count != 0 {
                     self.runtime_error("Expected 0 arguments but got {arg_count}.".into());
                     return Err(Error::Runtime);
@@ -216,6 +251,7 @@ impl VM {
             }
             RuntimeValue::Closure(closure) => self.call(closure, arg_count),
             RuntimeValue::Native(native) => {
+                let native = native.borrow();
                 let args = (self.value_stack
                     [self.value_stack_top - arg_count..self.value_stack_top])
                     .to_vec();
@@ -260,18 +296,18 @@ impl VM {
                 }
                 OpCode::GetLocal => {
                     let slot = self.current_frame().slots - self.read_byte()? as usize;
-                    let value = *self.peek_value(slot)?;
+                    let value = self.peek_value(slot)?.clone();
                     self.push_value(value);
                 }
                 OpCode::SetLocal => {
                     let slot = self.current_frame().slots - self.read_byte()? as usize;
-                    let value = *self.peek_value(0)?;
+                    let value = self.peek_value(0)?.clone();
                     *self.peek_value(slot)? = value;
                 }
                 OpCode::GetGlobal => {
                     let name = self.read_string()?;
                     let value = match self.globals.get(&name.chars) {
-                        Some(v) => *v,
+                        Some(v) => v.clone(),
                         None => {
                             self.runtime_error("Undefined variable {name}".into());
                             return Err(Error::Runtime);
@@ -285,12 +321,12 @@ impl VM {
                         self.runtime_error("Undefined variable '{name}'.".into());
                         return Err(Error::Runtime);
                     }
-                    let value = *self.peek_value(0)?;
+                    let value = self.peek_value(0)?.clone();
                     self.globals.insert(name.chars, value);
                 }
                 OpCode::DefineGlobal => {
                     let name = self.read_string()?;
-                    let value = *self.peek_value(0)?;
+                    let value = self.peek_value(0)?.clone();
                     self.globals.insert(name.chars, value);
                 }
                 OpCode::GetUpvalue => {
@@ -299,9 +335,11 @@ impl VM {
                         let closure = self
                             .current_frame()
                             .closure
+                            .clone()
                             .expect("Failed to get currently executing closure");
-                        let upvalue = closure.upvalues[slot];
-                        match *upvalue {
+                        let upvalue = closure.borrow().upvalues[slot].clone();
+                        let upvalue_deref = upvalue.borrow();
+                        match *upvalue_deref {
                             ObjUpvalue::Open { location } => location,
                             ObjUpvalue::Closed { value: _ } => return Err(Error::Runtime),
                         }
@@ -311,11 +349,16 @@ impl VM {
                 OpCode::SetUpvalue => {
                     let slot = self.read_byte()? as usize;
                     let value = self.peek_typed::<usize>(0)?;
-                    let mut closure = self
+                    let closure = self
                         .current_frame()
                         .closure
+                        .clone()
                         .expect("Failed to get currently executing closure");
-                    *closure.upvalues[slot] = ObjUpvalue::Open { location: value };
+                    let mut closure = closure.borrow_mut();
+                    let open_upvalue = self
+                        .store
+                        .insert_upvalue(ObjUpvalue::Open { location: value });
+                    closure.upvalues[slot] = open_upvalue;
                 }
                 OpCode::GetProperty => {
                     let name = self.read_string()?;
@@ -326,23 +369,24 @@ impl VM {
                         };
                         instance_ref
                     };
-                    if let Some(&v) = instance.fields.get(&name.chars) {
+                    let instance = instance.borrow();
+                    if let Some(v) = instance.fields.get(&name.chars) {
                         self.pop_value()?; // Instance
-                        self.push_value(v);
+                        self.push_value(v.clone());
                         continue;
                     }
 
-                    let class = instance.class;
+                    let class = instance.class.clone();
                     self.bind_method(class, name)?;
                 }
                 OpCode::SetProperty => {
-                    let Ok(mut instance) = self.peek_typed::<Pointer<ObjInstance>>(1) else {
+                    let Ok(instance) = self.peek_typed::<Pointer<ObjInstance>>(1) else {
                         self.runtime_error("Only instances have fields.".into());
                         return Err(Error::Runtime);
                     };
                     let name = self.read_string()?;
-                    let value = *self.peek_value(0)?;
-                    instance.fields.insert(name.chars, value);
+                    let value = self.peek_value(0)?.clone();
+                    instance.borrow_mut().fields.insert(name.chars, value);
                     let value = self.pop_value()?;
                     self.pop_value()?; // Instance
                     self.push_value(value);
@@ -438,47 +482,46 @@ impl VM {
                         RuntimeValue::Bool(b) => println!("{b}"),
                         RuntimeValue::Number(n) => println!("{n}"),
                         RuntimeValue::BoundMethod(bm) => {
-                            let method = bm.method.function;
-                            println!("{}", *method);
+                            println!("{bm}",);
                         }
                         RuntimeValue::Class(class) => {
-                            println!("{}", *class.name);
+                            println!("{class}");
                         }
                         RuntimeValue::Closure(closure) => {
-                            println!("{}", *closure);
+                            println!("{closure}");
                         }
                         RuntimeValue::Function(function) => {
-                            println!("{}", *function);
+                            println!("{function}");
                         }
                         RuntimeValue::Instance(instance) => {
-                            println!("{} instance", *instance.class.name);
+                            println!("{instance}");
                         }
                         RuntimeValue::Native(native) => {
-                            println!("{}", *native);
+                            println!("{native}");
                         }
                         RuntimeValue::String(string) => {
-                            println!("{}", *string);
+                            println!("{string}");
                         }
                         RuntimeValue::Nil => println!("nil"),
                     }
                 }
                 OpCode::Jump => {
                     let offset = self.read_short()? as usize;
-                    self.current_frame().ip += offset;
+                    self.current_frame_mut().ip += offset;
                 }
                 OpCode::JumpIfFalse => {
                     let offset = self.read_short()? as usize;
                     if self.peek_value(0)?.is_falsey() {
-                        self.current_frame().ip += offset;
+                        self.current_frame_mut().ip += offset;
                     }
                 }
                 OpCode::Loop => {
                     let offset = self.read_short()? as usize;
-                    self.current_frame().ip -= offset;
+                    self.current_frame_mut().ip -= offset;
                 }
                 OpCode::Call => {
                     let arg_count = self.read_byte()? as usize;
-                    let callee = *self.peek_value(arg_count)?;
+                    let callee = self.peek_value(arg_count)?.clone();
                     self.call_value(callee, arg_count)?;
                     self.pop_frame().ok_or(Error::Runtime)?;
                     return Ok(());
@@ -502,12 +545,13 @@ impl VM {
                         return Err(Error::Runtime);
                     };
                     let function = self.store.insert_function(*function);
-                    let mut closure = self.new_closure(function);
-                    self.push_value(closure);
-                    let upvalue_count = closure.upvalues.len();
+                    let closure = self.new_closure(function);
+                    self.push_value(closure.clone());
+                    let upvalue_count = closure.borrow().upvalues.len();
                     let current_closure = self
                         .current_frame()
                         .closure
+                        .clone()
                         .expect("Failed to get currently executing closure");
                     for i in 0..upvalue_count {
                         let is_local = self.read_byte()? != 0;
@@ -515,10 +559,11 @@ impl VM {
                         if is_local {
                             let stack_index = self.current_frame().slots - index;
                             let upvalue = self.capture_upvalue(stack_index)?;
-                            closure.upvalues[i] = upvalue;
+                            closure.borrow_mut().upvalues[i] = upvalue;
                         } else {
-                            let current_closure_upvalue = current_closure.upvalues[index];
-                            closure.upvalues[i] = current_closure_upvalue;
+                            let current_closure_upvalue =
+                                current_closure.borrow().upvalues[index].clone();
+                            closure.borrow_mut().upvalues[i] = current_closure_upvalue;
                         }
                     }
                 }
@@ -548,14 +593,15 @@ impl VM {
                         self.runtime_error("Superclass must be a class.".into());
                         return Err(Error::Runtime);
                     };
-                    let mut subclass = self.peek_typed::<Pointer<ObjClass>>(0)?;
+                    let subclass = self.peek_typed::<Pointer<ObjClass>>(0)?;
                     let methods: Vec<_> = superclass
+                        .borrow()
                         .methods
                         .iter()
-                        .map(|x| (x.0.clone(), *x.1))
+                        .map(|x| (x.0.clone(), x.1.clone()))
                         .collect();
                     for (key, value) in methods {
-                        subclass.methods.insert(key, value);
+                        subclass.borrow_mut().methods.insert(key, value);
                     }
                     self.pop_value()?; // Subclass
                 }
@@ -569,7 +615,8 @@ impl VM {
     }
 
     fn call(&mut self, closure: Pointer<ObjClosure>, arg_count: usize) -> Result<(), Error> {
-        let arity = closure.function.arity;
+        let closure_ref = closure.borrow();
+        let arity = closure_ref.function.borrow().arity;
         if arg_count != arity {
             self.runtime_error(format!(
                 "Expected {} arguments but got {}.",
@@ -582,7 +629,7 @@ impl VM {
             return Err(Error::Runtime);
         }
         let frame = &mut self.frame_stack[self.frame_stack_top];
-        frame.closure = Some(closure);
+        frame.closure = Some(closure.clone());
         frame.slots = arg_count;
         self.frame_stack_top += 1;
         Ok(())
@@ -598,8 +645,12 @@ impl VM {
     }
 
     fn new_closure(&mut self, function: Pointer<ObjFunction>) -> Pointer<ObjClosure> {
-        let upvalues = Vec::with_capacity(function.upvalue_count);
-        let closure = ObjClosure { function, upvalues };
+        let function_ref = function.borrow();
+        let upvalues = Vec::with_capacity(function_ref.upvalue_count);
+        let closure = ObjClosure {
+            function: function.clone(),
+            upvalues,
+        };
         self.store.insert_closure(closure)
     }
 
@@ -633,7 +684,7 @@ impl VM {
             return None;
         }
         self.frame_stack_top -= 1;
-        Some(self.frame_stack[self.frame_stack_top])
+        Some(self.frame_stack[self.frame_stack_top].clone())
     }
 
     fn pop_value(&mut self) -> Result<RuntimeValue, Error> {
@@ -641,7 +692,7 @@ impl VM {
             return Err(Error::Runtime);
         }
         self.value_stack_top -= 1;
-        Ok(self.value_stack[self.value_stack_top])
+        Ok(self.value_stack[self.value_stack_top].clone())
     }
 
     fn peek_value(&mut self, distance: usize) -> Result<&mut RuntimeValue, Error> {
@@ -656,7 +707,7 @@ impl VM {
         &mut self,
         distance: usize,
     ) -> Result<T, Error> {
-        (*self.peek_value(distance)?).try_into()
+        (self.peek_value(distance)?.clone()).try_into()
     }
 
     fn pop_typed<T: TryFrom<RuntimeValue, Error = Error>>(&mut self) -> Result<T, Error> {
