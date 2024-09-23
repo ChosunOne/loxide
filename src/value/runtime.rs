@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::{
     error::Error,
     object::{
@@ -29,6 +31,23 @@ impl RuntimeValue {
             Self::Nil => true,
             Self::Bool(b) => !b,
             _ => false,
+        }
+    }
+}
+
+impl Display for RuntimeValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RuntimeValue::Bool(b) => write!(f, "{b}"),
+            RuntimeValue::Number(n) => write!(f, "{n}"),
+            RuntimeValue::BoundMethod(pointer) => write!(f, "{pointer}"),
+            RuntimeValue::Class(pointer) => write!(f, "{pointer}"),
+            RuntimeValue::Closure(pointer) => write!(f, "{pointer}"),
+            RuntimeValue::Function(pointer) => write!(f, "{pointer}"),
+            RuntimeValue::Instance(pointer) => write!(f, "{pointer}"),
+            RuntimeValue::Native(pointer) => write!(f, "{pointer}"),
+            RuntimeValue::String(pointer) => write!(f, "{pointer}"),
+            RuntimeValue::Nil => write!(f, "nil"),
         }
     }
 }

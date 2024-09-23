@@ -50,14 +50,15 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     }
 
     pub fn interpret(&mut self, source: &str) -> Result<(), Error> {
-        #[cfg(feature = "debug")]
-        self.println("========== CODE ==========")?;
         let compiler = Compiler::new(source.into());
 
         let function = compiler.compile()?;
-
         #[cfg(feature = "debug")]
-        self.println(format!("{}", function.chunk))?;
+        {
+            println!("========== CODE ==========");
+            println!("== {} ==", function);
+            println!("{}", function.chunk);
+        }
 
         let function = Rc::new(RefCell::new(function));
         let function_ref = self.store.insert_function_pointer(function);
@@ -294,9 +295,29 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         }
     }
 
+    fn frame_slot_to_peek_distance(&self, slot: usize) -> usize {
+        // Example with slots = 1, value_stack_top = 4, and slot_index = 1
+        // | <script> | 1 | 2 | 3 | <top>
+        //       0      1   2   3     4
+        //                    | <- <top> - 1 - slots (1) = 2
+        //                        | <- <top> - 1 - slots (1) + slot_index (1) = 3
+        let slot_distance =
+            self.value_stack_top - (self.value_stack_top - 1 - self.current_frame().slots + slot);
+        slot_distance
+    }
+
     fn run(&mut self) -> Result<(), Error> {
         loop {
             let instruction = OpCode::from(self.read_byte()?);
+            #[cfg(feature = "debug")]
+            {
+                println!();
+                for i in 0..self.value_stack_top {
+                    print!("[ {} ]", self.value_stack[i]);
+                }
+                println!();
+                println!("{instruction}");
+            }
             match instruction {
                 OpCode::Constant => {
                     let constant = self.read_constant()?;
@@ -321,14 +342,17 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     self.pop_value()?;
                 }
                 OpCode::GetLocal => {
-                    let slot = self.current_frame().slots - self.read_byte()? as usize;
-                    let value = self.peek_value(slot)?.clone();
+                    let slot = self.read_byte()? as usize;
+                    let slot_distance = self.frame_slot_to_peek_distance(slot);
+
+                    let value = self.peek_value(slot_distance)?.clone();
                     self.push_value(value);
                 }
                 OpCode::SetLocal => {
-                    let slot = self.current_frame().slots - self.read_byte()? as usize;
+                    let slot = self.read_byte()? as usize;
+                    let slot_distance = self.frame_slot_to_peek_distance(slot);
                     let value = self.peek_value(0)?.clone();
-                    *self.peek_value(slot)? = value;
+                    *self.peek_value(slot_distance)? = value;
                 }
                 OpCode::GetGlobal => {
                     let name = self.read_string()?;
@@ -725,7 +749,9 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         if self.value_stack.is_empty() || distance > self.value_stack.len() - 1 {
             return Err(Error::Runtime);
         }
-        let index = self.value_stack.len() - 1 - distance;
+        println!("st: {}", self.value_stack_top);
+        println!("dist: {distance}");
+        let index = self.value_stack_top - 1 - distance;
         self.value_stack.get_mut(index).ok_or(Error::Runtime)
     }
 
