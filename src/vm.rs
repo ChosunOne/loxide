@@ -2,7 +2,7 @@ use std::{
     array,
     cell::RefCell,
     collections::{BTreeMap, HashMap},
-    io::Write,
+    io::{Stderr, Stdout, Write},
     rc::Rc,
 };
 
@@ -22,7 +22,7 @@ const MAX_FRAMES: usize = 64;
 const MAX_STACK_SIZE: usize = u8::MAX as usize * MAX_FRAMES;
 
 #[derive(Debug)]
-pub struct VM<Out: Write, EOut: Write> {
+pub struct VM<Out: Write = Stdout, EOut: Write = Stderr> {
     store: Store,
     value_stack: [RuntimeValue; MAX_STACK_SIZE],
     frame_stack: [CallFrame; MAX_FRAMES],
@@ -749,8 +749,6 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         if self.value_stack.is_empty() || distance > self.value_stack.len() - 1 {
             return Err(Error::Runtime);
         }
-        println!("st: {}", self.value_stack_top);
-        println!("dist: {distance}");
         let index = self.value_stack_top - 1 - distance;
         self.value_stack.get_mut(index).ok_or(Error::Runtime)
     }

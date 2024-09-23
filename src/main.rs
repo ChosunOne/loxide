@@ -4,7 +4,7 @@ use std::{
     io::{stderr, stdin, stdout, Write},
 };
 
-fn repl<Out: Write, EOut: Write>(mut vm: VM<Out, EOut>) {
+fn repl(mut vm: VM) {
     loop {
         let mut line = String::new();
         print!("> ");
@@ -16,7 +16,7 @@ fn repl<Out: Write, EOut: Write>(mut vm: VM<Out, EOut>) {
     }
 }
 
-fn run_file<Out: Write, EOut: Write>(path: &str, mut vm: VM<Out, EOut>) -> Result<(), Error> {
+fn run_file(path: &str, mut vm: VM) -> Result<(), Error> {
     let source = fs::read_to_string(path).expect("Failed to read file.");
     vm.interpret(&source)
 }
