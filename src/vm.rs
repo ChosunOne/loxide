@@ -50,12 +50,14 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     }
 
     pub fn interpret(&mut self, source: &str) -> Result<(), Error> {
+        #[cfg(feature = "debug")]
+        println!("========== CODE ==========");
+
         let compiler = Compiler::new(source.into());
 
         let function = compiler.compile()?;
         #[cfg(feature = "debug")]
         {
-            println!("========== CODE ==========");
             println!("== {} ==", function);
             println!("{}", function.chunk);
         }
@@ -198,7 +200,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     }
 
     fn close_upvalues(&mut self, last_stack_index: usize) -> Result<(), Error> {
-        let abs_last_stack_index = self.value_stack.len() - last_stack_index;
+        let abs_last_stack_index = self.current_frame().start_stack_index + last_stack_index;
         let mut closed_upvalues = Vec::new();
         for (&abs_stack_index, open_upvalue) in self.open_upvalues.iter_mut().rev() {
             if abs_stack_index < abs_last_stack_index {
@@ -386,13 +388,17 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                             .clone()
                             .expect("Failed to get currently executing closure");
                         let upvalue = closure.borrow().upvalues[slot].clone();
-                        let upvalue_deref = upvalue.borrow();
-                        match *upvalue_deref {
-                            ObjUpvalue::Open { location } => location,
-                            ObjUpvalue::Closed { value: _ } => return Err(Error::Runtime),
+                        let upvalue_deref = dbg!(upvalue.borrow());
+                        match &*upvalue_deref {
+                            ObjUpvalue::Open { location } => *location,
+                            ObjUpvalue::Closed { value } => {
+                                self.push_value(value.clone());
+                                continue;
+                            }
                         }
                     };
-                    self.push_value(location);
+                    let value = self.value_stack[location].clone();
+                    self.push_value(value);
                 }
                 OpCode::SetUpvalue => {
                     let slot = self.read_byte()? as usize;
@@ -593,26 +599,26 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     let ConstantValue::Function(function) = self.read_constant()? else {
                         return Err(Error::Runtime);
                     };
+                    let upvalue_count = function.upvalue_count;
                     let function = self.store.insert_function(*function);
                     let closure = self.new_closure(function);
                     self.push_value(closure.clone());
-                    let upvalue_count = closure.borrow().upvalues.len();
                     let current_closure = self
                         .current_frame()
                         .closure
                         .clone()
                         .expect("Failed to get currently executing closure");
-                    for i in 0..upvalue_count {
+                    for _ in 0..upvalue_count {
                         let is_local = self.read_byte()? != 0;
                         let index = self.read_byte()? as usize;
                         if is_local {
-                            let stack_index = self.current_frame().slots - index;
+                            let stack_index = dbg!(self.current_frame().start_stack_index + index);
                             let upvalue = self.capture_upvalue(stack_index)?;
-                            closure.borrow_mut().upvalues[i] = upvalue;
+                            closure.borrow_mut().upvalues.push(upvalue);
                         } else {
                             let current_closure_upvalue =
                                 current_closure.borrow().upvalues[index].clone();
-                            closure.borrow_mut().upvalues[i] = current_closure_upvalue;
+                            closure.borrow_mut().upvalues.push(current_closure_upvalue);
                         }
                     }
                 }
@@ -625,11 +631,11 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     let result = self.pop_value()?;
                     let slots = self.current_frame().slots;
                     self.close_upvalues(slots)?;
-                    self.pop_frame().ok_or(Error::Runtime)?;
+                    let start_index = self.pop_frame().ok_or(Error::Runtime)?.start_stack_index;
                     if self.frame_stack_top == 0 {
                         return Ok(());
                     }
-                    self.value_stack_top -= slots + 1;
+                    self.value_stack_top = start_index;
                     self.push_value(result);
                 }
                 OpCode::Class => {
@@ -666,6 +672,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     fn call(&mut self, closure: Pointer<ObjClosure>, arg_count: usize) -> Result<(), Error> {
         let closure_ref = closure.borrow();
         let arity = closure_ref.function.borrow().arity;
+
         if arg_count != arity {
             self.runtime_error(format!(
                 "Expected {} arguments but got {}.",
@@ -678,9 +685,12 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
             return Err(Error::Runtime);
         }
         let frame = &mut self.frame_stack[self.frame_stack_top];
-        frame.closure = Some(closure.clone());
-        frame.slots = arg_count;
-        frame.start_stack_index = self.value_stack_top - 1 - arg_count;
+        *frame = CallFrame {
+            closure: Some(closure.clone()),
+            ip: 0,
+            slots: arg_count,
+            start_stack_index: self.value_stack_top - 1 - arg_count,
+        };
         self.frame_stack_top += 1;
         Ok(())
     }
@@ -915,5 +925,19 @@ mod test {
         assert_eq!(vm.out.flushed[23], "true\n".as_bytes()); // true or false
         assert_eq!(vm.out.flushed[24], "false\n".as_bytes()); // false or false
         assert_eq!(vm.out.flushed[25], "ab\n".as_bytes()); // "a" + "b"
+    }
+
+    #[test]
+    fn it_runs_a_program_with_a_closure() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = "fun makeClosure(value) { fun closure() { print value; } return closure; } var doughnut = makeClosure(\"doughnut\"); var bagel = makeClosure(\"bagel\"); doughnut(); bagel();";
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run program");
+        assert!(!vm.out.flushed.is_empty());
+        assert_eq!(vm.out.flushed.len(), 2);
+        assert!(vm.e_out.flushed.is_empty());
+        assert_eq!(vm.out.flushed[0], "doughnut\n".as_bytes());
+        assert_eq!(vm.out.flushed[1], "bagel\n".as_bytes());
     }
 }

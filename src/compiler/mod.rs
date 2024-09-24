@@ -763,6 +763,18 @@ impl Compiler {
         self.block();
         self.emit_return();
         let context = self.pop_context();
+        #[cfg(feature = "debug")]
+        {
+            println!(
+                "== {} ==",
+                context
+                    .function
+                    .name
+                    .as_ref()
+                    .unwrap_or(&"<script>".to_string())
+            );
+            println!("{}", context.function.chunk);
+        }
         let upvalues = &context.upvalues[..context.function.upvalue_count];
         let constant = self.make_constant(ConstantValue::from(context.function));
         self.emit_opcode(OpCode::Closure);
