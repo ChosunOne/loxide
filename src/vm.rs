@@ -884,7 +884,7 @@ mod test {
         let out = TestOut::default();
         let e_out = TestOut::default();
         let source =
-            "print 1 + 2; print 3 * 4; print 5 / 6; print 7 - 8; print 1 == 2; print 1 == 1; print 1 != 1; print 1 != 2; print 1 < 1; print 1 < 2; print 1 < 0; print 1 <= 2; print 1 <= 1; print 1 <= 0; print 1 > 2; print 1 > 1; print 1 > 0; print 1 >= 2; print 1 >= 1; print 1 >= 0; print true and true; print true and false; print true or true; print true or false; print false or false;";
+            "print 1 + 2; print 3 * 4; print 5 / 6; print 7 - 8; print 1 == 2; print 1 == 1; print 1 != 1; print 1 != 2; print 1 < 1; print 1 < 2; print 1 < 0; print 1 <= 2; print 1 <= 1; print 1 <= 0; print 1 > 2; print 1 > 1; print 1 > 0; print 1 >= 2; print 1 >= 1; print 1 >= 0; print true and true; print true and false; print true or true; print true or false; print false or false; print \"a\" + \"b\";";
         let mut vm = VM::new(out, e_out);
         vm.interpret(source).expect("Failed to run program");
         assert!(!vm.out.flushed.is_empty());
@@ -914,5 +914,6 @@ mod test {
         assert_eq!(vm.out.flushed[22], "true\n".as_bytes()); // true or true
         assert_eq!(vm.out.flushed[23], "true\n".as_bytes()); // true or false
         assert_eq!(vm.out.flushed[24], "false\n".as_bytes()); // false or false
+        assert_eq!(vm.out.flushed[25], "ab\n".as_bytes()); // "a" + "b"
     }
 }
