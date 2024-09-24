@@ -159,7 +159,10 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     fn read_string(&mut self) -> Result<ObjString, Error> {
         let string = match self.read_constant()? {
             ConstantValue::String(s) => ObjString::from(s),
-            _ => return Err(Error::Runtime),
+            v => {
+                println!("Unexpected value: {v}");
+                return Err(Error::Runtime);
+            }
         };
         Ok(string)
     }
@@ -362,7 +365,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 }
                 OpCode::SetGlobal => {
                     let name = self.read_string()?;
-                    if self.globals.contains_key(&name.chars) {
+                    if !self.globals.contains_key(&name.chars) {
                         self.runtime_error("Undefined variable '{name}'.".into());
                         return Err(Error::Runtime);
                     }
@@ -737,7 +740,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     }
 
     fn peek_value(&mut self, distance: usize) -> Result<&mut RuntimeValue, Error> {
-        if self.value_stack.is_empty() || distance > self.value_stack.len() - 1 {
+        if self.value_stack_top == 0 || distance > self.value_stack_top - 1 {
             return Err(Error::Runtime);
         }
         let index = self.value_stack_top - 1 - distance;
@@ -832,5 +835,18 @@ mod test {
         assert_eq!(vm.out.flushed.len(), 2);
         assert_eq!(vm.out.flushed[0], "6\n".as_bytes());
         assert_eq!(vm.out.flushed[1], "nil\n".as_bytes());
+    }
+
+    #[test]
+    fn it_runs_a_program_with_control_flow() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = "var a = 1; if (true) { a = 2; } else { a = 3; } print a; if (false) { a = 4; } else { a = 6; } print a;";
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run program");
+        assert!(!vm.out.flushed.is_empty());
+        assert_eq!(vm.out.flushed.len(), 2);
+        assert_eq!(vm.out.flushed[0], "2\n".as_bytes());
+        assert_eq!(vm.out.flushed[1], "6\n".as_bytes());
     }
 }
