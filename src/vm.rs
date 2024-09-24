@@ -790,6 +790,8 @@ mod test {
         let source = "";
         let mut vm = VM::new(out, e_out);
         vm.interpret(source).expect("Failed to run empty program");
+        assert!(vm.out.flushed.is_empty());
+        assert!(vm.e_out.flushed.is_empty());
     }
 
     #[test]
@@ -799,6 +801,8 @@ mod test {
         let source = "1;";
         let mut vm = VM::new(out, e_out);
         vm.interpret(source).expect("Failed to run program");
+        assert!(vm.out.flushed.is_empty());
+        assert!(vm.e_out.flushed.is_empty());
     }
 
     #[test]
@@ -810,6 +814,7 @@ mod test {
         vm.interpret(source).expect("Failed to run program");
 
         assert!(!vm.out.flushed.is_empty());
+        assert!(vm.e_out.flushed.is_empty());
         assert_eq!(vm.out.flushed[0], "1\n".as_bytes());
     }
 
@@ -821,6 +826,7 @@ mod test {
         let mut vm = VM::new(out, e_out);
         vm.interpret(source).expect("Failed to run program");
         assert!(!vm.out.flushed.is_empty());
+        assert!(vm.e_out.flushed.is_empty());
         assert_eq!(vm.out.flushed[0], "1\n".as_bytes());
     }
 
@@ -832,6 +838,7 @@ mod test {
         let mut vm = VM::new(out, e_out);
         vm.interpret(source).expect("Failed to run program");
         assert!(!vm.out.flushed.is_empty());
+        assert!(vm.e_out.flushed.is_empty());
         assert_eq!(vm.out.flushed.len(), 2);
         assert_eq!(vm.out.flushed[0], "6\n".as_bytes());
         assert_eq!(vm.out.flushed[1], "nil\n".as_bytes());
@@ -845,8 +852,24 @@ mod test {
         let mut vm = VM::new(out, e_out);
         vm.interpret(source).expect("Failed to run program");
         assert!(!vm.out.flushed.is_empty());
+        assert!(vm.e_out.flushed.is_empty());
         assert_eq!(vm.out.flushed.len(), 2);
         assert_eq!(vm.out.flushed[0], "2\n".as_bytes());
         assert_eq!(vm.out.flushed[1], "6\n".as_bytes());
+    }
+
+    #[test]
+    fn it_runs_a_program_with_a_loop() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = "for (var b = 1; b < 4; b = b + 1) {print b;}";
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run program");
+        assert!(!vm.out.flushed.is_empty());
+        assert!(vm.e_out.flushed.is_empty());
+        assert_eq!(vm.out.flushed.len(), 3);
+        assert_eq!(vm.out.flushed[0], "1\n".as_bytes());
+        assert_eq!(vm.out.flushed[1], "2\n".as_bytes());
+        assert_eq!(vm.out.flushed[2], "3\n".as_bytes());
     }
 }
