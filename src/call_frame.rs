@@ -8,4 +8,6 @@ pub struct CallFrame {
     pub(crate) ip: usize,
     /// How many stack slots the call frame accesses
     pub(crate) slots: usize,
+    /// The absolute index of the start of the call frame
+    pub(crate) start_stack_index: usize,
 }

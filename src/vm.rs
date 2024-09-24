@@ -296,13 +296,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     }
 
     fn frame_slot_to_peek_distance(&self, slot: usize) -> usize {
-        // Example with slots = 1, value_stack_top = 4, and slot_index = 1
-        // | <script> | 1 | 2 | 3 | <top>
-        //       0      1   2   3     4
-        //                    | <- <top> - 1 - slots (1) = 2
-        //                        | <- <top> - 1 - slots (1) + slot_index (1) = 3
         let slot_distance =
-            self.value_stack_top - (self.value_stack_top - 1 - self.current_frame().slots + slot);
+            self.value_stack_top - 1 - (self.current_frame().start_stack_index + slot);
         slot_distance
     }
 
@@ -376,7 +371,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 }
                 OpCode::DefineGlobal => {
                     let name = self.read_string()?;
-                    let value = self.peek_value(0)?.clone();
+                    let value = self.pop_value()?.clone();
                     self.globals.insert(name.chars, value);
                 }
                 OpCode::GetUpvalue => {
@@ -573,22 +568,17 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     let arg_count = self.read_byte()? as usize;
                     let callee = self.peek_value(arg_count)?.clone();
                     self.call_value(callee, arg_count)?;
-                    self.pop_frame().ok_or(Error::Runtime)?;
-                    return Ok(());
                 }
                 OpCode::Invoke => {
                     let method_name = self.read_string()?;
                     let arg_count = self.read_byte()? as usize;
                     self.invoke(method_name.chars, arg_count)?;
-                    self.pop_frame().ok_or(Error::Runtime)?;
-                    return Ok(());
                 }
                 OpCode::SuperInvoke => {
                     let method_name = self.read_string()?;
                     let arg_count = self.read_byte()? as usize;
                     let class = self.pop_typed::<Pointer<ObjClass>>()?;
                     self.invoke_from_class(class, method_name.chars, arg_count)?;
-                    self.pop_frame().ok_or(Error::Runtime)?;
                 }
                 OpCode::Closure => {
                     let ConstantValue::Function(function) = self.read_constant()? else {
@@ -630,7 +620,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     if self.frame_stack_top == 0 {
                         return Ok(());
                     }
-                    self.frame_stack_top -= slots;
+                    self.value_stack_top -= slots + 1;
                     self.push_value(result);
                 }
                 OpCode::Class => {
@@ -681,6 +671,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         let frame = &mut self.frame_stack[self.frame_stack_top];
         frame.closure = Some(closure.clone());
         frame.slots = arg_count;
+        frame.start_stack_index = self.value_stack_top - 1 - arg_count;
         self.frame_stack_top += 1;
         Ok(())
     }
@@ -828,5 +819,18 @@ mod test {
         vm.interpret(source).expect("Failed to run program");
         assert!(!vm.out.flushed.is_empty());
         assert_eq!(vm.out.flushed[0], "1\n".as_bytes());
+    }
+
+    #[test]
+    fn it_runs_a_program_with_functions() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = "fun foo(a, b, c) { print a + b + c; } print foo(1, 2, 3);";
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run program");
+        assert!(!vm.out.flushed.is_empty());
+        assert_eq!(vm.out.flushed.len(), 2);
+        assert_eq!(vm.out.flushed[0], "6\n".as_bytes());
+        assert_eq!(vm.out.flushed[1], "nil\n".as_bytes());
     }
 }
