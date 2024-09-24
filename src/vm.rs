@@ -528,7 +528,13 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     let value = self.pop_value()?;
                     match value {
                         RuntimeValue::Bool(b) => self.println(format!("{b}"))?,
-                        RuntimeValue::Number(n) => self.println(format!("{n}"))?,
+                        RuntimeValue::Number(n) => {
+                            if n.fract() == 0.0 {
+                                self.println(format!("{n}"))?;
+                            } else {
+                                self.println(format!("{n:.6}"))?;
+                            }
+                        }
                         RuntimeValue::BoundMethod(bm) => {
                             self.println(format!("{bm}"))?;
                         }
@@ -871,5 +877,42 @@ mod test {
         assert_eq!(vm.out.flushed[0], "1\n".as_bytes());
         assert_eq!(vm.out.flushed[1], "2\n".as_bytes());
         assert_eq!(vm.out.flushed[2], "3\n".as_bytes());
+    }
+
+    #[test]
+    fn it_runs_a_program_with_simple_binary_ops() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source =
+            "print 1 + 2; print 3 * 4; print 5 / 6; print 7 - 8; print 1 == 2; print 1 == 1; print 1 != 1; print 1 != 2; print 1 < 1; print 1 < 2; print 1 < 0; print 1 <= 2; print 1 <= 1; print 1 <= 0; print 1 > 2; print 1 > 1; print 1 > 0; print 1 >= 2; print 1 >= 1; print 1 >= 0; print true and true; print true and false; print true or true; print true or false; print false or false;";
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run program");
+        assert!(!vm.out.flushed.is_empty());
+        assert!(vm.e_out.flushed.is_empty());
+        assert_eq!(vm.out.flushed[0], "3\n".as_bytes()); // 1 + 2
+        assert_eq!(vm.out.flushed[1], "12\n".as_bytes()); // 3 * 4
+        assert_eq!(vm.out.flushed[2], "0.833333\n".as_bytes()); // 5 / 6
+        assert_eq!(vm.out.flushed[3], "-1\n".as_bytes()); // 7 - 8
+        assert_eq!(vm.out.flushed[4], "false\n".as_bytes()); // 1 == 2
+        assert_eq!(vm.out.flushed[5], "true\n".as_bytes()); // 1 == 1
+        assert_eq!(vm.out.flushed[6], "false\n".as_bytes()); // 1 != 1
+        assert_eq!(vm.out.flushed[7], "true\n".as_bytes()); // 1 != 2
+        assert_eq!(vm.out.flushed[8], "false\n".as_bytes()); // 1 < 1
+        assert_eq!(vm.out.flushed[9], "true\n".as_bytes()); // 1 < 2
+        assert_eq!(vm.out.flushed[10], "false\n".as_bytes()); // 1 < 0
+        assert_eq!(vm.out.flushed[11], "true\n".as_bytes()); // 1 <= 2
+        assert_eq!(vm.out.flushed[12], "true\n".as_bytes()); // 1 <= 1
+        assert_eq!(vm.out.flushed[13], "false\n".as_bytes()); // 1 <= 0
+        assert_eq!(vm.out.flushed[14], "false\n".as_bytes()); // 1 > 2
+        assert_eq!(vm.out.flushed[15], "false\n".as_bytes()); // 1 > 1
+        assert_eq!(vm.out.flushed[16], "true\n".as_bytes()); // 1 > 0
+        assert_eq!(vm.out.flushed[17], "false\n".as_bytes()); // 1 >= 2
+        assert_eq!(vm.out.flushed[18], "true\n".as_bytes()); // 1 >= 1
+        assert_eq!(vm.out.flushed[19], "true\n".as_bytes()); // 1 >= 0
+        assert_eq!(vm.out.flushed[20], "true\n".as_bytes()); // true and true
+        assert_eq!(vm.out.flushed[21], "false\n".as_bytes()); // true and false
+        assert_eq!(vm.out.flushed[22], "true\n".as_bytes()); // true or true
+        assert_eq!(vm.out.flushed[23], "true\n".as_bytes()); // true or false
+        assert_eq!(vm.out.flushed[24], "false\n".as_bytes()); // false or false
     }
 }
