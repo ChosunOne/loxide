@@ -183,8 +183,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         Ok(())
     }
 
-    fn capture_upvalue(&mut self, stack_index: usize) -> Result<Pointer<ObjUpvalue>, Error> {
-        let absolute_stack_index = self.value_stack_top - stack_index;
+    fn capture_upvalue(&mut self, index: usize) -> Result<Pointer<ObjUpvalue>, Error> {
+        let absolute_stack_index = self.current_frame().start_stack_index + index;
         if let Some(upvalue) = self.open_upvalues.get(&absolute_stack_index) {
             return Ok(upvalue.clone());
         }
@@ -388,7 +388,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                             .clone()
                             .expect("Failed to get currently executing closure");
                         let upvalue = closure.borrow().upvalues[slot].clone();
-                        let upvalue_deref = dbg!(upvalue.borrow());
+                        let upvalue_deref = upvalue.borrow();
                         match &*upvalue_deref {
                             ObjUpvalue::Open { location } => *location,
                             ObjUpvalue::Closed { value } => {
@@ -612,8 +612,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                         let is_local = self.read_byte()? != 0;
                         let index = self.read_byte()? as usize;
                         if is_local {
-                            let stack_index = dbg!(self.current_frame().start_stack_index + index);
-                            let upvalue = self.capture_upvalue(stack_index)?;
+                            let upvalue = self.capture_upvalue(index)?;
                             closure.borrow_mut().upvalues.push(upvalue);
                         } else {
                             let current_closure_upvalue =
@@ -623,8 +622,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     }
                 }
                 OpCode::CloseUpvalue => {
-                    let value = self.peek_typed::<usize>(0)?;
-                    self.close_upvalues(value)?;
+                    self.close_upvalues(self.value_stack_top - 1)?;
                     self.pop_value()?;
                 }
                 OpCode::Return => {
@@ -979,5 +977,32 @@ mod test {
         assert!(vm.e_out.flushed.is_empty());
         assert_eq!(vm.out.flushed[0], "1\n".as_bytes());
         assert_eq!(vm.out.flushed[1], "b\n".as_bytes());
+    }
+
+    #[test]
+    fn it_runs_a_program_with_a_class_method() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = "class TestClass { init(c) { this.c = c; } m(a, b) { return a + b + this.c; } } var instance = TestClass(5); print instance.m(1, 2);";
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run program");
+        assert!(!vm.out.flushed.is_empty());
+        assert_eq!(vm.out.flushed.len(), 1);
+        assert!(vm.e_out.flushed.is_empty());
+        assert_eq!(vm.out.flushed[0], "8\n".as_bytes());
+    }
+
+    #[test]
+    fn it_runs_a_program_with_a_sub_class() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = "class ParentClass { init(a) { this.a = a; } m() { print this.a; } } class ChildClass < ParentClass { m() { super.m(); print this.a + 1; } } var child = ChildClass(1); child.m();";
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run program");
+        assert!(!vm.out.flushed.is_empty());
+        assert_eq!(vm.out.flushed.len(), 2);
+        assert!(vm.e_out.flushed.is_empty());
+        assert_eq!(vm.out.flushed[0], "1\n".as_bytes());
+        assert_eq!(vm.out.flushed[1], "2\n".as_bytes());
     }
 }
