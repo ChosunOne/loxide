@@ -940,4 +940,44 @@ mod test {
         assert_eq!(vm.out.flushed[0], "doughnut\n".as_bytes());
         assert_eq!(vm.out.flushed[1], "bagel\n".as_bytes());
     }
+
+    #[test]
+    fn it_runs_a_program_with_a_class_definition() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = "class TestClass {} print TestClass;";
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run program");
+        assert!(!vm.out.flushed.is_empty());
+        assert_eq!(vm.out.flushed.len(), 1);
+        assert!(vm.e_out.flushed.is_empty());
+        assert_eq!(vm.out.flushed[0], "TestClass\n".as_bytes());
+    }
+
+    #[test]
+    fn it_runs_a_program_with_a_class_instance() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = "class TestClass {} print TestClass();";
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run program");
+        assert!(!vm.out.flushed.is_empty());
+        assert_eq!(vm.out.flushed.len(), 1);
+        assert!(vm.e_out.flushed.is_empty());
+        assert_eq!(vm.out.flushed[0], "TestClass instance\n".as_bytes());
+    }
+
+    #[test]
+    fn it_runs_a_program_with_a_class_initializer() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = "class TestClass { init() { this.a = 1; this.b = \"b\"; } } var instance = TestClass(); print instance.a; print instance.b;";
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run program");
+        assert!(!vm.out.flushed.is_empty());
+        assert_eq!(vm.out.flushed.len(), 2);
+        assert!(vm.e_out.flushed.is_empty());
+        assert_eq!(vm.out.flushed[0], "1\n".as_bytes());
+        assert_eq!(vm.out.flushed[1], "b\n".as_bytes());
+    }
 }
