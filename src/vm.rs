@@ -115,7 +115,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 self.eprint(format!("{name}\n"))
                     .expect("Failed to print error");
             } else {
-                self.eprint("script").expect("Failed to print error");
+                self.eprint("script\n").expect("Failed to print error");
             };
         }
 
@@ -258,7 +258,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     ) -> Result<(), Error> {
         let class = class.borrow();
         let Some(method) = class.methods.get(&method_name) else {
-            self.runtime_error("Undefined property {method_name}.".into());
+            self.runtime_error(format!("Undefined property '{method_name}'.\n"));
             return Err(Error::Runtime);
         };
         self.call(method.clone(), arg_count)
@@ -278,7 +278,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 if let Some(initializer) = class.methods.get("init") {
                     self.call(initializer.clone(), arg_count)?;
                 } else if arg_count != 0 {
-                    self.runtime_error("Expected 0 arguments but got {arg_count}.".into());
+                    self.runtime_error(format!("Expected 0 arguments but got {arg_count}.\n"));
                     return Err(Error::Runtime);
                 }
                 Ok(())
@@ -296,7 +296,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
             }
 
             _ => {
-                self.runtime_error("Can only call functions and classes.".into());
+                self.runtime_error("Can only call functions and classes.\n".into());
                 Err(Error::Runtime)
             }
         }
@@ -361,7 +361,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     let value = match self.globals.get(&name.chars) {
                         Some(v) => v.clone(),
                         None => {
-                            self.runtime_error("Undefined variable {name}".into());
+                            self.runtime_error(format!("Undefined variable '{name}'.\n"));
                             return Err(Error::Runtime);
                         }
                     };
@@ -370,7 +370,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 OpCode::SetGlobal => {
                     let name = self.read_string()?;
                     if !self.globals.contains_key(&name.chars) {
-                        self.runtime_error("Undefined variable '{name}'.".into());
+                        self.runtime_error(format!("Undefined variable '{name}'.\n"));
                         return Err(Error::Runtime);
                     }
                     let value = self.peek_value(0)?.clone();
@@ -462,7 +462,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 }
                 OpCode::Greater => {
                     if self.peek_typed::<f64>(0).is_err() || self.peek_typed::<f64>(1).is_err() {
-                        self.runtime_error("Operands must be numbers".into());
+                        self.runtime_error("Operands must be numbers.\n".into());
                         return Err(Error::Runtime);
                     }
                     let b = self.pop_typed::<f64>()?;
@@ -471,7 +471,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 }
                 OpCode::Less => {
                     if self.peek_typed::<f64>(0).is_err() || self.peek_typed::<f64>(1).is_err() {
-                        self.runtime_error("Operands must be numbers".into());
+                        self.runtime_error("Operands must be numbers.\n".into());
                         return Err(Error::Runtime);
                     }
                     let b = self.pop_typed::<f64>()?;
@@ -487,7 +487,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     }
 
                     if self.peek_typed::<f64>(0).is_err() || self.peek_typed::<f64>(1).is_err() {
-                        self.runtime_error("Operands must be two numbers or two strings.".into());
+                        self.runtime_error("Operands must be two numbers or two strings.\n".into());
                         return Err(Error::Runtime);
                     }
                     let b = self.pop_typed::<f64>()?;
@@ -496,7 +496,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 }
                 OpCode::Subtract => {
                     if self.peek_typed::<f64>(0).is_err() || self.peek_typed::<f64>(1).is_err() {
-                        self.runtime_error("Operands must be numbers".into());
+                        self.runtime_error("Operands must be numbers.\n".into());
                         return Err(Error::Runtime);
                     }
                     let b = self.pop_typed::<f64>()?;
@@ -505,7 +505,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 }
                 OpCode::Multiply => {
                     if self.peek_typed::<f64>(0).is_err() || self.peek_typed::<f64>(1).is_err() {
-                        self.runtime_error("Operands must be numbers".into());
+                        self.runtime_error("Operands must be numbers.\n".into());
                         return Err(Error::Runtime);
                     }
                     let b = self.pop_typed::<f64>()?;
@@ -514,7 +514,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 }
                 OpCode::Divide => {
                     if self.peek_typed::<f64>(0).is_err() || self.peek_typed::<f64>(1).is_err() {
-                        self.runtime_error("Operands must be numbers".into());
+                        self.runtime_error("Operands must be numbers.\n".into());
                         return Err(Error::Runtime);
                     }
                     let b = self.pop_typed::<f64>()?;
@@ -527,7 +527,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 }
                 OpCode::Negate => {
                     let Ok(value) = self.pop_typed::<f64>() else {
-                        self.runtime_error("Operand must be a number.".into());
+                        self.runtime_error("Operand must be a number.\n".into());
                         return Err(Error::Runtime);
                     };
                     self.push_value(-value);
@@ -645,7 +645,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 }
                 OpCode::Inherit => {
                     let Ok(superclass) = self.peek_typed::<Pointer<ObjClass>>(1) else {
-                        self.runtime_error("Superclass must be a class.".into());
+                        self.runtime_error("Superclass must be a class.\n".into());
                         return Err(Error::Runtime);
                     };
                     let subclass = self.peek_typed::<Pointer<ObjClass>>(0)?;
@@ -675,13 +675,13 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
 
         if arg_count != arity {
             self.runtime_error(format!(
-                "Expected {} arguments but got {}.",
+                "Expected {} arguments but got {}.\n",
                 arity, arg_count
             ));
             return Err(Error::Runtime);
         }
         if self.frame_stack_top == MAX_FRAMES {
-            self.runtime_error("Stack overflow.".into());
+            self.runtime_error("Stack overflow.\n".into());
             return Err(Error::Runtime);
         }
         let frame = &mut self.frame_stack[self.frame_stack_top];
@@ -782,7 +782,7 @@ mod test {
     #[derive(Debug, Default)]
     struct TestOut {
         buf: Vec<u8>,
-        flushed: Vec<Vec<u8>>,
+        flushed: Vec<String>,
     }
 
     impl Write for TestOut {
@@ -793,7 +793,7 @@ mod test {
 
         fn flush(&mut self) -> std::io::Result<()> {
             let buf = self.buf.clone();
-            self.flushed.push(buf);
+            self.flushed.push(String::from_utf8(buf).unwrap());
             self.buf = Vec::new();
             Ok(())
         }
@@ -831,7 +831,7 @@ mod test {
 
         assert!(!vm.out.flushed.is_empty());
         assert!(vm.e_out.flushed.is_empty());
-        assert_eq!(vm.out.flushed[0], "1\n".as_bytes());
+        assert_eq!(vm.out.flushed[0], "1\n".to_string());
     }
 
     #[test]
@@ -843,7 +843,7 @@ mod test {
         vm.interpret(source).expect("Failed to run program");
         assert!(!vm.out.flushed.is_empty());
         assert!(vm.e_out.flushed.is_empty());
-        assert_eq!(vm.out.flushed[0], "1\n".as_bytes());
+        assert_eq!(vm.out.flushed[0], "1\n".to_string());
     }
 
     #[test]
@@ -856,8 +856,8 @@ mod test {
         assert!(!vm.out.flushed.is_empty());
         assert!(vm.e_out.flushed.is_empty());
         assert_eq!(vm.out.flushed.len(), 2);
-        assert_eq!(vm.out.flushed[0], "6\n".as_bytes());
-        assert_eq!(vm.out.flushed[1], "nil\n".as_bytes());
+        assert_eq!(vm.out.flushed[0], "6\n".to_string());
+        assert_eq!(vm.out.flushed[1], "nil\n".to_string());
     }
 
     #[test]
@@ -870,8 +870,8 @@ mod test {
         assert!(!vm.out.flushed.is_empty());
         assert!(vm.e_out.flushed.is_empty());
         assert_eq!(vm.out.flushed.len(), 2);
-        assert_eq!(vm.out.flushed[0], "2\n".as_bytes());
-        assert_eq!(vm.out.flushed[1], "6\n".as_bytes());
+        assert_eq!(vm.out.flushed[0], "2\n".to_string());
+        assert_eq!(vm.out.flushed[1], "6\n".to_string());
     }
 
     #[test]
@@ -884,9 +884,9 @@ mod test {
         assert!(!vm.out.flushed.is_empty());
         assert!(vm.e_out.flushed.is_empty());
         assert_eq!(vm.out.flushed.len(), 3);
-        assert_eq!(vm.out.flushed[0], "1\n".as_bytes());
-        assert_eq!(vm.out.flushed[1], "2\n".as_bytes());
-        assert_eq!(vm.out.flushed[2], "3\n".as_bytes());
+        assert_eq!(vm.out.flushed[0], "1\n".to_string());
+        assert_eq!(vm.out.flushed[1], "2\n".to_string());
+        assert_eq!(vm.out.flushed[2], "3\n".to_string());
     }
 
     #[test]
@@ -899,32 +899,32 @@ mod test {
         vm.interpret(source).expect("Failed to run program");
         assert!(!vm.out.flushed.is_empty());
         assert!(vm.e_out.flushed.is_empty());
-        assert_eq!(vm.out.flushed[0], "3\n".as_bytes()); // 1 + 2
-        assert_eq!(vm.out.flushed[1], "12\n".as_bytes()); // 3 * 4
-        assert_eq!(vm.out.flushed[2], "0.833333\n".as_bytes()); // 5 / 6
-        assert_eq!(vm.out.flushed[3], "-1\n".as_bytes()); // 7 - 8
-        assert_eq!(vm.out.flushed[4], "false\n".as_bytes()); // 1 == 2
-        assert_eq!(vm.out.flushed[5], "true\n".as_bytes()); // 1 == 1
-        assert_eq!(vm.out.flushed[6], "false\n".as_bytes()); // 1 != 1
-        assert_eq!(vm.out.flushed[7], "true\n".as_bytes()); // 1 != 2
-        assert_eq!(vm.out.flushed[8], "false\n".as_bytes()); // 1 < 1
-        assert_eq!(vm.out.flushed[9], "true\n".as_bytes()); // 1 < 2
-        assert_eq!(vm.out.flushed[10], "false\n".as_bytes()); // 1 < 0
-        assert_eq!(vm.out.flushed[11], "true\n".as_bytes()); // 1 <= 2
-        assert_eq!(vm.out.flushed[12], "true\n".as_bytes()); // 1 <= 1
-        assert_eq!(vm.out.flushed[13], "false\n".as_bytes()); // 1 <= 0
-        assert_eq!(vm.out.flushed[14], "false\n".as_bytes()); // 1 > 2
-        assert_eq!(vm.out.flushed[15], "false\n".as_bytes()); // 1 > 1
-        assert_eq!(vm.out.flushed[16], "true\n".as_bytes()); // 1 > 0
-        assert_eq!(vm.out.flushed[17], "false\n".as_bytes()); // 1 >= 2
-        assert_eq!(vm.out.flushed[18], "true\n".as_bytes()); // 1 >= 1
-        assert_eq!(vm.out.flushed[19], "true\n".as_bytes()); // 1 >= 0
-        assert_eq!(vm.out.flushed[20], "true\n".as_bytes()); // true and true
-        assert_eq!(vm.out.flushed[21], "false\n".as_bytes()); // true and false
-        assert_eq!(vm.out.flushed[22], "true\n".as_bytes()); // true or true
-        assert_eq!(vm.out.flushed[23], "true\n".as_bytes()); // true or false
-        assert_eq!(vm.out.flushed[24], "false\n".as_bytes()); // false or false
-        assert_eq!(vm.out.flushed[25], "ab\n".as_bytes()); // "a" + "b"
+        assert_eq!(vm.out.flushed[0], "3\n".to_string()); // 1 + 2
+        assert_eq!(vm.out.flushed[1], "12\n".to_string()); // 3 * 4
+        assert_eq!(vm.out.flushed[2], "0.833333\n".to_string()); // 5 / 6
+        assert_eq!(vm.out.flushed[3], "-1\n".to_string()); // 7 - 8
+        assert_eq!(vm.out.flushed[4], "false\n".to_string()); // 1 == 2
+        assert_eq!(vm.out.flushed[5], "true\n".to_string()); // 1 == 1
+        assert_eq!(vm.out.flushed[6], "false\n".to_string()); // 1 != 1
+        assert_eq!(vm.out.flushed[7], "true\n".to_string()); // 1 != 2
+        assert_eq!(vm.out.flushed[8], "false\n".to_string()); // 1 < 1
+        assert_eq!(vm.out.flushed[9], "true\n".to_string()); // 1 < 2
+        assert_eq!(vm.out.flushed[10], "false\n".to_string()); // 1 < 0
+        assert_eq!(vm.out.flushed[11], "true\n".to_string()); // 1 <= 2
+        assert_eq!(vm.out.flushed[12], "true\n".to_string()); // 1 <= 1
+        assert_eq!(vm.out.flushed[13], "false\n".to_string()); // 1 <= 0
+        assert_eq!(vm.out.flushed[14], "false\n".to_string()); // 1 > 2
+        assert_eq!(vm.out.flushed[15], "false\n".to_string()); // 1 > 1
+        assert_eq!(vm.out.flushed[16], "true\n".to_string()); // 1 > 0
+        assert_eq!(vm.out.flushed[17], "false\n".to_string()); // 1 >= 2
+        assert_eq!(vm.out.flushed[18], "true\n".to_string()); // 1 >= 1
+        assert_eq!(vm.out.flushed[19], "true\n".to_string()); // 1 >= 0
+        assert_eq!(vm.out.flushed[20], "true\n".to_string()); // true and true
+        assert_eq!(vm.out.flushed[21], "false\n".to_string()); // true and false
+        assert_eq!(vm.out.flushed[22], "true\n".to_string()); // true or true
+        assert_eq!(vm.out.flushed[23], "true\n".to_string()); // true or false
+        assert_eq!(vm.out.flushed[24], "false\n".to_string()); // false or false
+        assert_eq!(vm.out.flushed[25], "ab\n".to_string()); // "a" + "b"
     }
 
     #[test]
@@ -937,8 +937,8 @@ mod test {
         assert!(!vm.out.flushed.is_empty());
         assert_eq!(vm.out.flushed.len(), 2);
         assert!(vm.e_out.flushed.is_empty());
-        assert_eq!(vm.out.flushed[0], "doughnut\n".as_bytes());
-        assert_eq!(vm.out.flushed[1], "bagel\n".as_bytes());
+        assert_eq!(vm.out.flushed[0], "doughnut\n".to_string());
+        assert_eq!(vm.out.flushed[1], "bagel\n".to_string());
     }
 
     #[test]
@@ -951,7 +951,7 @@ mod test {
         assert!(!vm.out.flushed.is_empty());
         assert_eq!(vm.out.flushed.len(), 1);
         assert!(vm.e_out.flushed.is_empty());
-        assert_eq!(vm.out.flushed[0], "TestClass\n".as_bytes());
+        assert_eq!(vm.out.flushed[0], "TestClass\n".to_string());
     }
 
     #[test]
@@ -964,7 +964,7 @@ mod test {
         assert!(!vm.out.flushed.is_empty());
         assert_eq!(vm.out.flushed.len(), 1);
         assert!(vm.e_out.flushed.is_empty());
-        assert_eq!(vm.out.flushed[0], "TestClass instance\n".as_bytes());
+        assert_eq!(vm.out.flushed[0], "TestClass instance\n".to_string());
     }
 
     #[test]
@@ -977,8 +977,8 @@ mod test {
         assert!(!vm.out.flushed.is_empty());
         assert_eq!(vm.out.flushed.len(), 2);
         assert!(vm.e_out.flushed.is_empty());
-        assert_eq!(vm.out.flushed[0], "1\n".as_bytes());
-        assert_eq!(vm.out.flushed[1], "b\n".as_bytes());
+        assert_eq!(vm.out.flushed[0], "1\n".to_string());
+        assert_eq!(vm.out.flushed[1], "b\n".to_string());
     }
 
     #[test]
@@ -991,7 +991,7 @@ mod test {
         assert!(!vm.out.flushed.is_empty());
         assert_eq!(vm.out.flushed.len(), 1);
         assert!(vm.e_out.flushed.is_empty());
-        assert_eq!(vm.out.flushed[0], "8\n".as_bytes());
+        assert_eq!(vm.out.flushed[0], "8\n".to_string());
     }
 
     #[test]
@@ -1004,7 +1004,25 @@ mod test {
         assert!(!vm.out.flushed.is_empty());
         assert_eq!(vm.out.flushed.len(), 2);
         assert!(vm.e_out.flushed.is_empty());
-        assert_eq!(vm.out.flushed[0], "1\n".as_bytes());
-        assert_eq!(vm.out.flushed[1], "2\n".as_bytes());
+        assert_eq!(vm.out.flushed[0], "1\n".to_string());
+        assert_eq!(vm.out.flushed[1], "2\n".to_string());
+    }
+
+    #[test]
+    fn it_reports_a_runtime_error() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = "class TestClass {} var a = TestClass(); print a.foo();";
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect_err("Expected runtime error");
+        assert!(vm.out.flushed.is_empty());
+        assert!(!vm.e_out.flushed.is_empty());
+        assert_eq!(vm.e_out.flushed.len(), 3);
+        assert_eq!(
+            vm.e_out.flushed[0],
+            "Undefined property 'foo'.\n".to_string()
+        );
+        assert_eq!(vm.e_out.flushed[1], "[line 1] in ".to_string());
+        assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
     }
 }
