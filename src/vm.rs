@@ -69,7 +69,9 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         self.pop_value()?;
         self.push_value(closure.clone());
         self.call(closure, 0)?;
-        self.run()
+        self.run()?;
+        self.pop_value()?;
+        Ok(())
     }
 
     fn println(&mut self, string: impl Into<String>) -> Result<(), Error> {
