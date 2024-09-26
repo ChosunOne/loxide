@@ -940,6 +940,21 @@ mod test {
     }
 
     #[test]
+    fn it_runs_a_program_with_negation() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            print -1;
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run program");
+        assert!(!vm.out.flushed.is_empty());
+        assert!(vm.e_out.flushed.is_empty());
+        assert_eq!(vm.out.flushed.len(), 1);
+        assert_eq!(vm.out.flushed[0], "-1\n".to_string());
+    }
+
+    #[test]
     fn it_runs_a_program_with_simple_binary_ops() {
         let out = TestOut::default();
         let e_out = TestOut::default();
@@ -1239,7 +1254,7 @@ mod test {
     }
 
     #[test]
-    fn it_reports_a_runtime_error_non_instance_field() {
+    fn it_reports_a_runtime_error_non_instance_field_get() {
         let out = TestOut::default();
         let e_out = TestOut::default();
         let source = r#"
@@ -1253,6 +1268,160 @@ mod test {
         assert_eq!(vm.e_out.flushed.len(), 3);
         assert_eq!(vm.e_out.flushed[0], "Only instances have fields.\n");
         assert_eq!(vm.e_out.flushed[1], "[line 3] in ".to_string());
+        assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
+    }
+
+    #[test]
+    fn it_reports_a_runtime_error_non_instance_field_set() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            var a = 1; 
+            a.b = 2;
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect_err("Expected runtime error");
+        assert!(vm.out.flushed.is_empty());
+        assert!(!vm.e_out.flushed.is_empty());
+        assert_eq!(vm.e_out.flushed.len(), 3);
+        assert_eq!(vm.e_out.flushed[0], "Only instances have fields.\n");
+        assert_eq!(vm.e_out.flushed[1], "[line 3] in ".to_string());
+        assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
+    }
+
+    #[test]
+    fn it_reports_a_runtime_error_non_number_lt() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            "a" < "b";
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect_err("Expected runtime error");
+        assert!(vm.out.flushed.is_empty());
+        assert!(!vm.e_out.flushed.is_empty());
+        assert_eq!(vm.e_out.flushed.len(), 3);
+        assert_eq!(vm.e_out.flushed[0], "Operands must be numbers.\n");
+        assert_eq!(vm.e_out.flushed[1], "[line 2] in ".to_string());
+        assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
+    }
+
+    #[test]
+    fn it_reports_a_runtime_error_non_number_le() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            "a" <= "b";
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect_err("Expected runtime error");
+        assert!(vm.out.flushed.is_empty());
+        assert!(!vm.e_out.flushed.is_empty());
+        assert_eq!(vm.e_out.flushed.len(), 3);
+        assert_eq!(vm.e_out.flushed[0], "Operands must be numbers.\n");
+        assert_eq!(vm.e_out.flushed[1], "[line 2] in ".to_string());
+        assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
+    }
+
+    #[test]
+    fn it_reports_a_runtime_error_non_number_gt() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            "a" > "b";
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect_err("Expected runtime error");
+        assert!(vm.out.flushed.is_empty());
+        assert!(!vm.e_out.flushed.is_empty());
+        assert_eq!(vm.e_out.flushed.len(), 3);
+        assert_eq!(vm.e_out.flushed[0], "Operands must be numbers.\n");
+        assert_eq!(vm.e_out.flushed[1], "[line 2] in ".to_string());
+        assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
+    }
+
+    #[test]
+    fn it_reports_a_runtime_error_non_number_ge() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            "a" >= "b";
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect_err("Expected runtime error");
+        assert!(vm.out.flushed.is_empty());
+        assert!(!vm.e_out.flushed.is_empty());
+        assert_eq!(vm.e_out.flushed.len(), 3);
+        assert_eq!(vm.e_out.flushed[0], "Operands must be numbers.\n");
+        assert_eq!(vm.e_out.flushed[1], "[line 2] in ".to_string());
+        assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
+    }
+
+    #[test]
+    fn it_reports_a_runtime_error_non_number_sub() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            "a" - "b";
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect_err("Expected runtime error");
+        assert!(vm.out.flushed.is_empty());
+        assert!(!vm.e_out.flushed.is_empty());
+        assert_eq!(vm.e_out.flushed.len(), 3);
+        assert_eq!(vm.e_out.flushed[0], "Operands must be numbers.\n");
+        assert_eq!(vm.e_out.flushed[1], "[line 2] in ".to_string());
+        assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
+    }
+
+    #[test]
+    fn it_reports_a_runtime_error_non_number_mul() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            "a" * "b";
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect_err("Expected runtime error");
+        assert!(vm.out.flushed.is_empty());
+        assert!(!vm.e_out.flushed.is_empty());
+        assert_eq!(vm.e_out.flushed.len(), 3);
+        assert_eq!(vm.e_out.flushed[0], "Operands must be numbers.\n");
+        assert_eq!(vm.e_out.flushed[1], "[line 2] in ".to_string());
+        assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
+    }
+
+    #[test]
+    fn it_reports_a_runtime_error_non_number_div() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            "a" / "b";
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect_err("Expected runtime error");
+        assert!(vm.out.flushed.is_empty());
+        assert!(!vm.e_out.flushed.is_empty());
+        assert_eq!(vm.e_out.flushed.len(), 3);
+        assert_eq!(vm.e_out.flushed[0], "Operands must be numbers.\n");
+        assert_eq!(vm.e_out.flushed[1], "[line 2] in ".to_string());
+        assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
+    }
+
+    #[test]
+    fn it_reports_a_runtime_error_non_number_negate() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            -"a";
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect_err("Expected runtime error");
+        assert!(vm.out.flushed.is_empty());
+        assert!(!vm.e_out.flushed.is_empty());
+        assert_eq!(vm.e_out.flushed.len(), 3);
+        assert_eq!(vm.e_out.flushed[0], "Operand must be a number.\n");
+        assert_eq!(vm.e_out.flushed[1], "[line 2] in ".to_string());
         assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
     }
 }
