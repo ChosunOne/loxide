@@ -422,16 +422,15 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 }
                 OpCode::SetUpvalue => {
                     let slot = self.read_byte()? as usize;
-                    let value = self.peek_typed::<usize>(0)?;
                     let closure = self
                         .current_frame()
                         .closure
                         .clone()
                         .expect("Failed to get currently executing closure");
                     let mut closure = closure.borrow_mut();
-                    let open_upvalue = self
-                        .store
-                        .insert_upvalue(ObjUpvalue::Open { location: value });
+                    let open_upvalue = self.store.insert_upvalue(ObjUpvalue::Open {
+                        location: self.value_stack_top - 1,
+                    });
                     closure.upvalues[slot] = open_upvalue;
                 }
                 OpCode::GetProperty => {
@@ -860,7 +859,13 @@ mod test {
     fn it_runs_a_program_with_scopes() {
         let out = TestOut::default();
         let e_out = TestOut::default();
-        let source = "var a = 1; { var b = a; print b; }";
+        let source = r#"
+            var a = 1; 
+            { 
+                var b = a; 
+                print b;
+            }
+            "#;
         let mut vm = VM::new(out, e_out);
         vm.interpret(source).expect("Failed to run program");
         assert!(!vm.out.flushed.is_empty());
@@ -872,7 +877,12 @@ mod test {
     fn it_runs_a_program_with_functions() {
         let out = TestOut::default();
         let e_out = TestOut::default();
-        let source = "fun foo(a, b, c) { print a + b + c; } print foo(1, 2, 3);";
+        let source = r#"
+            fun foo(a, b, c) { 
+                print a + b + c; 
+            } 
+            print foo(1, 2, 3);
+        "#;
         let mut vm = VM::new(out, e_out);
         vm.interpret(source).expect("Failed to run program");
         assert!(!vm.out.flushed.is_empty());
@@ -886,7 +896,21 @@ mod test {
     fn it_runs_a_program_with_control_flow() {
         let out = TestOut::default();
         let e_out = TestOut::default();
-        let source = "var a = 1; if (true) { a = 2; } else { a = 3; } print a; if (false) { a = 4; } else { a = 6; } print a;";
+        let source = r#"
+            var a = 1; 
+            if (true) { 
+                a = 2; 
+            } else { 
+                a = 3; 
+            } 
+            print a; 
+            if (false) { 
+                a = 4; 
+            } else { 
+                a = 6; 
+            } 
+            print a;
+        "#;
         let mut vm = VM::new(out, e_out);
         vm.interpret(source).expect("Failed to run program");
         assert!(!vm.out.flushed.is_empty());
@@ -900,7 +924,11 @@ mod test {
     fn it_runs_a_program_with_a_loop() {
         let out = TestOut::default();
         let e_out = TestOut::default();
-        let source = "for (var b = 1; b < 4; b = b + 1) {print b;}";
+        let source = r#"
+            for (var b = 1; b < 4; b = b + 1) {
+                print b;
+            }
+        "#;
         let mut vm = VM::new(out, e_out);
         vm.interpret(source).expect("Failed to run program");
         assert!(!vm.out.flushed.is_empty());
@@ -915,8 +943,34 @@ mod test {
     fn it_runs_a_program_with_simple_binary_ops() {
         let out = TestOut::default();
         let e_out = TestOut::default();
-        let source =
-            "print 1 + 2; print 3 * 4; print 5 / 6; print 7 - 8; print 1 == 2; print 1 == 1; print 1 != 1; print 1 != 2; print 1 < 1; print 1 < 2; print 1 < 0; print 1 <= 2; print 1 <= 1; print 1 <= 0; print 1 > 2; print 1 > 1; print 1 > 0; print 1 >= 2; print 1 >= 1; print 1 >= 0; print true and true; print true and false; print true or true; print true or false; print false or false; print \"a\" + \"b\";";
+        let source = r#"
+            print 1 + 2; 
+            print 3 * 4; 
+            print 5 / 6; 
+            print 7 - 8; 
+            print 1 == 2; 
+            print 1 == 1; 
+            print 1 != 1; 
+            print 1 != 2; 
+            print 1 < 1; 
+            print 1 < 2; 
+            print 1 < 0; 
+            print 1 <= 2; 
+            print 1 <= 1; 
+            print 1 <= 0; 
+            print 1 > 2; 
+            print 1 > 1; 
+            print 1 > 0; 
+            print 1 >= 2; 
+            print 1 >= 1; 
+            print 1 >= 0; 
+            print true and true; 
+            print true and false; 
+            print true or true; 
+            print true or false; 
+            print false or false; 
+            print "a" + "b";
+        "#;
         let mut vm = VM::new(out, e_out);
         vm.interpret(source).expect("Failed to run program");
         assert!(!vm.out.flushed.is_empty());
@@ -953,7 +1007,45 @@ mod test {
     fn it_runs_a_program_with_a_closure() {
         let out = TestOut::default();
         let e_out = TestOut::default();
-        let source = "fun makeClosure(value) { fun closure() { print value; } return closure; } var doughnut = makeClosure(\"doughnut\"); var bagel = makeClosure(\"bagel\"); doughnut(); bagel();";
+        let source = r#"
+            fun makeClosure(value) { 
+                fun closure() { 
+                    print value; 
+                } 
+                return closure; 
+            } 
+            var doughnut = makeClosure("doughnut"); 
+            var bagel = makeClosure("bagel"); 
+            doughnut(); 
+            bagel();
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run program");
+        assert!(!vm.out.flushed.is_empty());
+        assert_eq!(vm.out.flushed.len(), 2);
+        assert!(vm.e_out.flushed.is_empty());
+        assert_eq!(vm.out.flushed[0], "doughnut\n".to_string());
+        assert_eq!(vm.out.flushed[1], "bagel\n".to_string());
+    }
+
+    #[test]
+    fn it_runs_a_program_with_a_closure_with_inner_assignment() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            fun makeClosure(value) { 
+                fun closure(b) { 
+                    value = b; 
+                    print value;
+                } 
+                return closure; 
+            } 
+            var breakfast = "eggs";
+            var doughnut = makeClosure(breakfast); 
+            var bagel = makeClosure(breakfast); 
+            doughnut("doughnut"); 
+            bagel("bagel");
+        "#;
         let mut vm = VM::new(out, e_out);
         vm.interpret(source).expect("Failed to run program");
         assert!(!vm.out.flushed.is_empty());
@@ -967,7 +1059,10 @@ mod test {
     fn it_runs_a_program_with_a_class_definition() {
         let out = TestOut::default();
         let e_out = TestOut::default();
-        let source = "class TestClass {} print TestClass;";
+        let source = r#"
+            class TestClass {} 
+            print TestClass;
+        "#;
         let mut vm = VM::new(out, e_out);
         vm.interpret(source).expect("Failed to run program");
         assert!(!vm.out.flushed.is_empty());
@@ -980,7 +1075,10 @@ mod test {
     fn it_runs_a_program_with_a_class_instance() {
         let out = TestOut::default();
         let e_out = TestOut::default();
-        let source = "class TestClass {} print TestClass();";
+        let source = r#"
+            class TestClass {} 
+            print TestClass();
+        "#;
         let mut vm = VM::new(out, e_out);
         vm.interpret(source).expect("Failed to run program");
         assert!(!vm.out.flushed.is_empty());
@@ -993,7 +1091,17 @@ mod test {
     fn it_runs_a_program_with_a_class_initializer() {
         let out = TestOut::default();
         let e_out = TestOut::default();
-        let source = "class TestClass { init() { this.a = 1; this.b = \"b\"; } } var instance = TestClass(); print instance.a; print instance.b;";
+        let source = r#"
+            class TestClass { 
+                init() { 
+                    this.a = 1; 
+                    this.b = "b"; 
+                } 
+            } 
+            var instance = TestClass(); 
+            print instance.a; 
+            print instance.b;
+        "#;
         let mut vm = VM::new(out, e_out);
         vm.interpret(source).expect("Failed to run program");
         assert!(!vm.out.flushed.is_empty());
@@ -1007,7 +1115,18 @@ mod test {
     fn it_runs_a_program_with_a_class_method() {
         let out = TestOut::default();
         let e_out = TestOut::default();
-        let source = "class TestClass { init(c) { this.c = c; } m(a, b) { return a + b + this.c; } } var instance = TestClass(5); print instance.m(1, 2);";
+        let source = r#"
+            class TestClass { 
+                init(c) { 
+                    this.c = c; 
+                } 
+                m(a, b) { 
+                    return a + b + this.c; 
+                } 
+            } 
+            var instance = TestClass(5); 
+            print instance.m(1, 2);
+        "#;
         let mut vm = VM::new(out, e_out);
         vm.interpret(source).expect("Failed to run program");
         assert!(!vm.out.flushed.is_empty());
@@ -1020,7 +1139,24 @@ mod test {
     fn it_runs_a_program_with_a_sub_class_super_method() {
         let out = TestOut::default();
         let e_out = TestOut::default();
-        let source = "class ParentClass { init(a) { this.a = a; } m() { print this.a; } } class ChildClass < ParentClass { m() { super.m(); print this.a + 1; } } var child = ChildClass(1); child.m();";
+        let source = r#"
+            class ParentClass { 
+                init(a) { 
+                    this.a = a; 
+                } 
+                m() { 
+                    print this.a; 
+                } 
+            } 
+            class ChildClass < ParentClass { 
+                m() { 
+                    super.m(); 
+                    print this.a + 1; 
+                }
+            } 
+            var child = ChildClass(1); 
+            child.m();
+        "#;
         let mut vm = VM::new(out, e_out);
         vm.interpret(source).expect("Failed to run program");
         assert!(!vm.out.flushed.is_empty());
@@ -1034,7 +1170,25 @@ mod test {
     fn it_runs_a_program_with_a_sub_class_super_property() {
         let out = TestOut::default();
         let e_out = TestOut::default();
-        let source = "class ParentClass { init(a) { this.a = a; } m() { print this.a; } } class ChildClass < ParentClass { m() { super.m(); print super.m; } } var child = ChildClass(1); child.m();";
+        let source = r#"
+            class ParentClass { 
+                init(a) { 
+                    this.a = a; 
+                } 
+                m() { 
+                    print this.a; 
+                } 
+            } 
+
+            class ChildClass < ParentClass { 
+                m() { 
+                    super.m(); 
+                    print super.m; 
+                } 
+            } 
+            var child = ChildClass(1); 
+            child.m();
+        "#;
         let mut vm = VM::new(out, e_out);
         vm.interpret(source).expect("Failed to run program");
         assert!(!vm.out.flushed.is_empty());
@@ -1066,7 +1220,11 @@ mod test {
     fn it_reports_a_runtime_error() {
         let out = TestOut::default();
         let e_out = TestOut::default();
-        let source = "class TestClass {} var a = TestClass(); print a.foo();";
+        let source = r#"
+            class TestClass {} 
+            var a = TestClass(); 
+            print a.foo();
+        "#;
         let mut vm = VM::new(out, e_out);
         vm.interpret(source).expect_err("Expected runtime error");
         assert!(vm.out.flushed.is_empty());
