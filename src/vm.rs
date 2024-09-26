@@ -437,7 +437,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     let name = self.read_string()?;
                     let instance = {
                         let Ok(instance_ref) = self.peek_typed::<Pointer<ObjInstance>>(0) else {
-                            self.runtime_error("Only instances have fields.".into());
+                            self.runtime_error("Only instances have fields.\n".into());
                             return Err(Error::Runtime);
                         };
                         instance_ref
@@ -454,7 +454,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 }
                 OpCode::SetProperty => {
                     let Ok(instance) = self.peek_typed::<Pointer<ObjInstance>>(1) else {
-                        self.runtime_error("Only instances have fields.".into());
+                        self.runtime_error("Only instances have fields.\n".into());
                         return Err(Error::Runtime);
                     };
                     let name = self.read_string()?;
@@ -1234,7 +1234,25 @@ mod test {
             vm.e_out.flushed[0],
             "Undefined property 'foo'.\n".to_string()
         );
-        assert_eq!(vm.e_out.flushed[1], "[line 1] in ".to_string());
+        assert_eq!(vm.e_out.flushed[1], "[line 4] in ".to_string());
+        assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
+    }
+
+    #[test]
+    fn it_reports_a_runtime_error_non_instance_field() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            var a = 1; 
+            print a.b;
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect_err("Expected runtime error");
+        assert!(vm.out.flushed.is_empty());
+        assert!(!vm.e_out.flushed.is_empty());
+        assert_eq!(vm.e_out.flushed.len(), 3);
+        assert_eq!(vm.e_out.flushed[0], "Only instances have fields.\n");
+        assert_eq!(vm.e_out.flushed[1], "[line 3] in ".to_string());
         assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
     }
 }

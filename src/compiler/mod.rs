@@ -237,6 +237,7 @@ impl Compiler {
 
     fn advance_scanner(&mut self) {
         self.previous_token = self.scanner.next();
+        self.line = self.previous_token.as_ref().unwrap().line;
         loop {
             let current_token = self.peek_scanner();
             let lexeme = current_token.lexeme.clone();
@@ -245,6 +246,7 @@ impl Compiler {
                 _ => break,
             }
             self.previous_token = self.scanner.next();
+            self.line = self.previous_token.as_ref().unwrap().line;
         }
     }
 
