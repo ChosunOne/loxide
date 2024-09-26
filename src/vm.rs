@@ -4,6 +4,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     io::{Stderr, Stdout, Write},
     rc::Rc,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use crate::{
@@ -12,14 +13,22 @@ use crate::{
     compiler::Compiler,
     error::Error,
     object::{
-        ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjString, ObjUpvalue,
-        Pointer, Store,
+        obj_native::NativeFn, ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance,
+        ObjNative, ObjString, ObjUpvalue, Pointer, Store,
     },
     value::{ConstantValue, RuntimeValue},
 };
 
 const MAX_FRAMES: usize = 64;
 const MAX_STACK_SIZE: usize = u8::MAX as usize * MAX_FRAMES;
+
+fn clock_native(_args: Vec<RuntimeValue>) -> RuntimeValue {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Failed to get system time")
+        .as_secs_f64()
+        .into()
+}
 
 #[derive(Debug)]
 pub struct VM<Out: Write = Stdout, EOut: Write = Stderr> {
@@ -36,7 +45,7 @@ pub struct VM<Out: Write = Stdout, EOut: Write = Stderr> {
 
 impl<Out: Write, EOut: Write> VM<Out, EOut> {
     pub fn new(out: Out, e_out: EOut) -> Self {
-        Self {
+        let mut vm = Self {
             store: Store::default(),
             value_stack: array::from_fn(|_| RuntimeValue::default()),
             frame_stack: array::from_fn(|_| CallFrame::default()),
@@ -46,7 +55,11 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
             open_upvalues: BTreeMap::default(),
             out,
             e_out,
-        }
+        };
+
+        vm.define_native("clock".into(), clock_native);
+
+        vm
     }
 
     pub fn interpret(&mut self, source: &str) -> Result<(), Error> {
@@ -72,6 +85,11 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         self.run()?;
         self.pop_value()?;
         Ok(())
+    }
+
+    fn define_native(&mut self, name: String, function: NativeFn) {
+        let native_pointer = self.new_native(function).into();
+        self.globals.insert(name, native_pointer);
     }
 
     fn println(&mut self, string: impl Into<String>) -> Result<(), Error> {
@@ -731,6 +749,10 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         self.store.insert_bound_method(bound_method)
     }
 
+    fn new_native(&mut self, function: NativeFn) -> Pointer<ObjNative> {
+        self.store.insert_native(ObjNative { function })
+    }
+
     fn push_value(&mut self, value: impl Into<RuntimeValue>) {
         if self.value_stack_top == MAX_STACK_SIZE {
             panic!("Stack overflow.");
@@ -995,7 +1017,7 @@ mod test {
     }
 
     #[test]
-    fn it_runs_a_program_with_a_sub_class() {
+    fn it_runs_a_program_with_a_sub_class_super_method() {
         let out = TestOut::default();
         let e_out = TestOut::default();
         let source = "class ParentClass { init(a) { this.a = a; } m() { print this.a; } } class ChildClass < ParentClass { m() { super.m(); print this.a + 1; } } var child = ChildClass(1); child.m();";
@@ -1006,6 +1028,38 @@ mod test {
         assert!(vm.e_out.flushed.is_empty());
         assert_eq!(vm.out.flushed[0], "1\n".to_string());
         assert_eq!(vm.out.flushed[1], "2\n".to_string());
+    }
+
+    #[test]
+    fn it_runs_a_program_with_a_sub_class_super_property() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = "class ParentClass { init(a) { this.a = a; } m() { print this.a; } } class ChildClass < ParentClass { m() { super.m(); print super.m; } } var child = ChildClass(1); child.m();";
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run program");
+        assert!(!vm.out.flushed.is_empty());
+        assert_eq!(vm.out.flushed.len(), 2);
+        assert!(vm.e_out.flushed.is_empty());
+        assert_eq!(vm.out.flushed[0], "1\n".to_string());
+        assert_eq!(vm.out.flushed[1], "<fn m>\n".to_string());
+    }
+
+    #[test]
+    fn it_runs_a_program_with_a_native_function() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = "print clock();";
+        let mut vm = VM::new(out, e_out);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64()
+            .round();
+        vm.interpret(source).expect("Failed to run program");
+        assert!(!vm.out.flushed.is_empty());
+        assert!(vm.e_out.flushed.is_empty());
+        let printed_time = vm.out.flushed[0].trim().parse::<f64>().unwrap().round();
+        assert_eq!(printed_time, now);
     }
 
     #[test]
