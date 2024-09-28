@@ -449,4 +449,34 @@ mod test {
         assert!(store.closure_store.contains_key(&closure_pointer));
         assert!(store.bound_method_store.contains_key(&bound_method_pointer));
     }
+
+    #[test]
+    fn it_traces_classes() {
+        let mut store = Store::default();
+        let class_name = ObjString {
+            chars: "TestClass".into(),
+        };
+        let class_name_pointer = store.insert_string(class_name);
+        let function = ObjFunction::default();
+        let function_pointer = store.insert_function(function);
+        let closure = ObjClosure {
+            function: function_pointer.clone(),
+            upvalues: Vec::new(),
+        };
+        let closure_pointer = store.insert_closure(closure);
+        let class = ObjClass {
+            name: class_name_pointer.clone(),
+            methods: [("init".to_owned(), closure_pointer.clone())].into(),
+        };
+        let class_pointer = store.insert_class(class);
+        store
+            .globals
+            .insert("test_class".into(), class_pointer.clone().into());
+        store.next_gc = 0;
+        store.collect_garbage();
+        assert!(store.string_store.contains_key(&class_name_pointer));
+        assert!(store.function_store.contains_key(&function_pointer));
+        assert!(store.closure_store.contains_key(&closure_pointer));
+        assert!(store.class_store.contains_key(&class_pointer));
+    }
 }
