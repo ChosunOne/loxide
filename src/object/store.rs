@@ -479,4 +479,63 @@ mod test {
         assert!(store.closure_store.contains_key(&closure_pointer));
         assert!(store.class_store.contains_key(&class_pointer));
     }
+
+    #[test]
+    fn it_traces_closures() {
+        let mut store = Store::default();
+        let function = ObjFunction::default();
+        let function_pointer = store.insert_function(function);
+        let upvalue = ObjUpvalue::Open { location: 2 };
+        let upvalue_pointer = store.insert_upvalue(upvalue);
+        let closure = ObjClosure {
+            function: function_pointer.clone(),
+            upvalues: vec![upvalue_pointer.clone()],
+        };
+        let closure_pointer = store.insert_closure(closure);
+        store
+            .globals
+            .insert("closure".into(), closure_pointer.clone().into());
+        store.next_gc = 0;
+        store.collect_garbage();
+        assert!(store.function_store.contains_key(&function_pointer));
+        assert!(store.upvalue_store.contains_key(&upvalue_pointer));
+        assert!(store.closure_store.contains_key(&closure_pointer));
+    }
+
+    #[test]
+    fn it_traces_instances() {
+        let mut store = Store::default();
+        let class_name = ObjString {
+            chars: "TestClass".into(),
+        };
+        let class_name_pointer = store.insert_string(class_name);
+        let function = ObjFunction::default();
+        let function_pointer = store.insert_function(function);
+        let closure = ObjClosure {
+            function: function_pointer.clone(),
+            upvalues: Vec::new(),
+        };
+        let closure_pointer = store.insert_closure(closure);
+        let class = ObjClass {
+            name: class_name_pointer.clone(),
+            methods: [("init".to_owned(), closure_pointer.clone())].into(),
+        };
+        let class_pointer = store.insert_class(class);
+        let instance = ObjInstance {
+            class: class_pointer.clone(),
+            fields: [("a".to_owned(), RuntimeValue::Nil)].into(),
+        };
+        let instance_pointer = store.insert_instance(instance);
+        store
+            .globals
+            .insert("test_instance".into(), instance_pointer.clone().into());
+        store.next_gc = 0;
+        store.collect_garbage();
+
+        assert!(store.string_store.contains_key(&class_name_pointer));
+        assert!(store.function_store.contains_key(&function_pointer));
+        assert!(store.closure_store.contains_key(&closure_pointer));
+        assert!(store.class_store.contains_key(&class_pointer));
+        assert!(store.instance_store.contains_key(&instance_pointer));
+    }
 }
