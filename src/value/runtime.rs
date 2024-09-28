@@ -1,10 +1,10 @@
-use std::fmt::Display;
+use std::{fmt::Display, hash::Hash};
 
 use crate::{
     error::Error,
     object::{
         ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjNative, ObjString,
-        Pointer,
+        ObjUpvalue, Pointer,
     },
 };
 
@@ -21,6 +21,7 @@ pub enum RuntimeValue {
     Instance(Pointer<ObjInstance>),
     Native(Pointer<ObjNative>),
     String(Pointer<ObjString>),
+    Upvalue(Pointer<ObjUpvalue>),
     #[default]
     Nil,
 }
@@ -35,6 +36,26 @@ impl RuntimeValue {
     }
 }
 
+impl Hash for RuntimeValue {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            RuntimeValue::Bool(b) => b.hash(state),
+            RuntimeValue::Number(n) => n.to_bits().hash(state),
+            RuntimeValue::BoundMethod(pointer) => pointer.hash(state),
+            RuntimeValue::Class(pointer) => pointer.hash(state),
+            RuntimeValue::Closure(pointer) => pointer.hash(state),
+            RuntimeValue::Function(pointer) => pointer.hash(state),
+            RuntimeValue::Instance(pointer) => pointer.hash(state),
+            RuntimeValue::Native(pointer) => pointer.hash(state),
+            RuntimeValue::String(pointer) => pointer.hash(state),
+            RuntimeValue::Upvalue(pointer) => pointer.hash(state),
+            RuntimeValue::Nil => 0.hash(state),
+        }
+    }
+}
+
+impl Eq for RuntimeValue {}
+
 impl Display for RuntimeValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -47,6 +68,7 @@ impl Display for RuntimeValue {
             RuntimeValue::Instance(pointer) => write!(f, "{pointer}"),
             RuntimeValue::Native(pointer) => write!(f, "{pointer}"),
             RuntimeValue::String(pointer) => write!(f, "{pointer}"),
+            RuntimeValue::Upvalue(pointer) => write!(f, "{pointer}"),
             RuntimeValue::Nil => write!(f, "nil"),
         }
     }
@@ -131,6 +153,12 @@ impl From<Pointer<ObjNative>> for RuntimeValue {
 impl From<Pointer<ObjString>> for RuntimeValue {
     fn from(value: Pointer<ObjString>) -> Self {
         Self::String(value)
+    }
+}
+
+impl From<Pointer<ObjUpvalue>> for RuntimeValue {
+    fn from(value: Pointer<ObjUpvalue>) -> Self {
+        Self::Upvalue(value)
     }
 }
 

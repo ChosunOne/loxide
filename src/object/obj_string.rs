@@ -1,8 +1,16 @@
 use std::fmt::Display;
 
+use super::HeapSize;
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ObjString {
     pub chars: String,
+}
+
+impl HeapSize for ObjString {
+    fn size(&self) -> usize {
+        self.chars.len() + size_of::<String>()
+    }
 }
 
 impl From<&str> for ObjString {

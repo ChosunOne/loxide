@@ -19,3 +19,8 @@ pub use obj_string::ObjString;
 pub use obj_upvalue::ObjUpvalue;
 pub use object_store::{ObjectStore, Pointer};
 pub use store::Store;
+
+pub trait HeapSize {
+    /// The size of owned objects in the heap
+    fn size(&self) -> usize;
+}

@@ -1,12 +1,32 @@
 use crate::chunk::Chunk;
 use std::fmt::Display;
 
+use super::HeapSize;
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ObjFunction {
     pub arity: usize,
     pub upvalue_count: usize,
     pub chunk: Chunk,
     pub name: Option<String>,
+}
+
+impl HeapSize for ObjFunction {
+    fn size(&self) -> usize {
+        size_of::<usize>() * 2
+            + self.chunk.code.len()
+            + self.chunk.lines.len() * size_of::<usize>()
+            + self
+                .chunk
+                .constants
+                .iter()
+                .map(|x| match x {
+                    crate::value::ConstantValue::Number(_) => size_of::<f64>(),
+                    crate::value::ConstantValue::String(s) => s.len(),
+                    crate::value::ConstantValue::Function(obj_function) => obj_function.size(),
+                })
+                .sum::<usize>()
+    }
 }
 
 impl Display for ObjFunction {

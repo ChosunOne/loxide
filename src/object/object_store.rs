@@ -1,7 +1,7 @@
 use std::{
     cell::RefCell,
     collections::HashMap,
-    fmt::Display,
+    fmt::{Debug, Display},
     hash::{BuildHasherDefault, Hash, Hasher},
     ops::Deref,
     rc::Rc,
@@ -9,7 +9,10 @@ use std::{
 
 use crate::{error::Error, value::RuntimeValue};
 
-use super::{ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjNative, ObjString};
+use super::{
+    HeapSize, ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjNative, ObjString,
+    ObjUpvalue,
+};
 
 #[derive(Default)]
 struct PointerHasher(u64);
@@ -64,6 +67,12 @@ impl Display for Pointer<ObjNative> {
 }
 
 impl Display for Pointer<ObjString> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.borrow())
+    }
+}
+
+impl Display for Pointer<ObjUpvalue> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.borrow())
     }
@@ -179,7 +188,7 @@ pub struct ObjectStore<T> {
     map: HashMap<Pointer<T>, Rc<RefCell<T>>, BuildHasherDefault<PointerHasher>>,
 }
 
-impl<T> ObjectStore<T> {
+impl<T: Debug + HeapSize> ObjectStore<T> {
     pub fn insert(&mut self, value: T) -> Pointer<T> {
         let object = Rc::new(RefCell::new(value));
         let pointer = Pointer(Rc::clone(&object));
@@ -193,8 +202,20 @@ impl<T> ObjectStore<T> {
         pointer
     }
 
-    pub fn free(&mut self, key: Pointer<T>) {
-        self.map.remove(&key);
+    pub fn free(&mut self, key: Pointer<T>) -> usize {
+        let Some(o) = self.map.remove(&key) else {
+            return 0;
+        };
+        let size = o.borrow().size();
+        size
+    }
+
+    pub fn keys(&self) -> Vec<Pointer<T>> {
+        self.map.keys().cloned().collect()
+    }
+
+    pub fn contains_key(&self, key: &Pointer<T>) -> bool {
+        self.map.contains_key(key)
     }
 }
 
@@ -213,32 +234,36 @@ mod test {
 
     #[test]
     fn it_inserts_and_retrieves_strings() {
-        let mut value_store = ObjectStore::default();
-        let value = "test string value";
+        let mut value_store = ObjectStore::<ObjString>::default();
+        let value = "test string value".into();
         let value_ref = value_store.insert(value);
-        let retrieved_value = *value_ref.borrow();
+        let retrieved_value = &*value_ref.borrow().chars;
         assert_eq!(retrieved_value, "test string value");
     }
 
     #[test]
     fn it_gets_a_mutable_string() {
-        let mut value_store = ObjectStore::default();
-        let value = "test string value".to_owned();
+        let mut value_store = ObjectStore::<ObjString>::default();
+        let value = "test string value".into();
         let value_ref = value_store.insert(value);
         {
-            *value_ref.borrow_mut() += " mutated";
+            value_ref.borrow_mut().chars += " mutated";
         }
-        let retrieved_value = value_ref.borrow().clone();
-        assert_eq!(retrieved_value, "test string value mutated")
+        let retrieved_value = value_ref.borrow().clone().chars;
+        assert_eq!(retrieved_value, "test string value mutated");
     }
 
     #[test]
     fn it_frees_a_value() {
-        let mut value_store = ObjectStore::default();
-        let value = "test string value";
+        let mut value_store = ObjectStore::<ObjString>::default();
+        let value = "test string value".into();
         let value_ref = value_store.insert(value);
-        value_store.free(value_ref.clone());
+        let freed_bytes = value_store.free(value_ref.clone());
         let retrieved_value = value_store.map.get(&value_ref);
-        assert!(retrieved_value.is_none())
+        assert!(retrieved_value.is_none());
+        assert_eq!(
+            freed_bytes,
+            "test string value".to_owned().len() + size_of::<String>()
+        );
     }
 }

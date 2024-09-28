@@ -1,5 +1,4 @@
 use std::{
-    array,
     cell::RefCell,
     collections::{BTreeMap, HashMap},
     io::{Stderr, Stdout, Write},
@@ -13,14 +12,13 @@ use crate::{
     compiler::Compiler,
     error::Error,
     object::{
-        obj_native::NativeFn, ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance,
-        ObjNative, ObjString, ObjUpvalue, Pointer, Store,
+        obj_native::NativeFn, store::MAX_STACK_SIZE, ObjBoundMethod, ObjClass, ObjClosure,
+        ObjFunction, ObjInstance, ObjNative, ObjString, ObjUpvalue, Pointer, Store,
     },
     value::{ConstantValue, RuntimeValue},
 };
 
-const MAX_FRAMES: usize = 64;
-const MAX_STACK_SIZE: usize = u8::MAX as usize * MAX_FRAMES;
+pub const MAX_FRAMES: usize = 64;
 
 fn clock_native(_args: Vec<RuntimeValue>) -> RuntimeValue {
     SystemTime::now()
@@ -33,29 +31,14 @@ fn clock_native(_args: Vec<RuntimeValue>) -> RuntimeValue {
 #[derive(Debug)]
 pub struct VM<Out: Write = Stdout, EOut: Write = Stderr> {
     store: Store,
-    value_stack: [RuntimeValue; MAX_STACK_SIZE],
-    frame_stack: [CallFrame; MAX_FRAMES],
-    value_stack_top: usize,
-    frame_stack_top: usize,
-    globals: HashMap<String, RuntimeValue>,
-    open_upvalues: BTreeMap<usize, Pointer<ObjUpvalue>>,
     out: Out,
     e_out: EOut,
 }
 
 impl<Out: Write, EOut: Write> VM<Out, EOut> {
     pub fn new(out: Out, e_out: EOut) -> Self {
-        let mut vm = Self {
-            store: Store::default(),
-            value_stack: array::from_fn(|_| RuntimeValue::default()),
-            frame_stack: array::from_fn(|_| CallFrame::default()),
-            frame_stack_top: 0,
-            value_stack_top: 0,
-            globals: HashMap::default(),
-            open_upvalues: BTreeMap::default(),
-            out,
-            e_out,
-        };
+        let store = Store::default();
+        let mut vm = Self { store, out, e_out };
 
         vm.define_native("clock".into(), clock_native);
 
@@ -89,7 +72,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
 
     fn define_native(&mut self, name: String, function: NativeFn) {
         let native_pointer = self.new_native(function).into();
-        self.globals.insert(name, native_pointer);
+        self.store.globals.insert(name, native_pointer);
     }
 
     fn println(&mut self, string: impl Into<String>) -> Result<(), Error> {
@@ -111,9 +94,9 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     }
 
     fn reset_stack(&mut self) {
-        self.value_stack_top = 0;
-        self.frame_stack_top = 0;
-        self.open_upvalues = BTreeMap::default();
+        self.store.value_stack_top = 0;
+        self.store.frame_stack_top = 0;
+        self.store.open_upvalues = BTreeMap::default();
     }
 
     fn runtime_error(&mut self, message: String) {
@@ -142,11 +125,11 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     }
 
     fn current_frame(&self) -> &CallFrame {
-        &self.frame_stack[self.frame_stack_top - 1]
+        &self.store.frame_stack[self.store.frame_stack_top - 1]
     }
 
     fn current_frame_mut(&mut self) -> &mut CallFrame {
-        &mut self.frame_stack[self.frame_stack_top - 1]
+        &mut self.store.frame_stack[self.store.frame_stack_top - 1]
     }
 
     fn current_closure(&self) -> Pointer<ObjClosure> {
@@ -205,7 +188,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
 
     fn capture_upvalue(&mut self, index: usize) -> Result<Pointer<ObjUpvalue>, Error> {
         let absolute_stack_index = self.current_frame().start_stack_index + index;
-        if let Some(upvalue) = self.open_upvalues.get(&absolute_stack_index) {
+        if let Some(upvalue) = self.store.open_upvalues.get(&absolute_stack_index) {
             return Ok(upvalue.clone());
         }
 
@@ -214,7 +197,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         };
         let upvalue_ptr = self.store.insert_upvalue(upvalue);
 
-        self.open_upvalues
+        self.store
+            .open_upvalues
             .insert(absolute_stack_index, upvalue_ptr.clone());
         Ok(upvalue_ptr)
     }
@@ -222,18 +206,18 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     fn close_upvalues(&mut self, last_stack_index: usize) -> Result<(), Error> {
         let abs_last_stack_index = self.current_frame().start_stack_index + last_stack_index;
         let mut closed_upvalues = Vec::new();
-        for (&abs_stack_index, open_upvalue) in self.open_upvalues.iter_mut().rev() {
+        for (&abs_stack_index, open_upvalue) in self.store.open_upvalues.iter_mut().rev() {
             if abs_stack_index < abs_last_stack_index {
                 break;
             }
-            let referenced_value = self.value_stack[abs_stack_index].clone();
+            let referenced_value = self.store.value_stack[abs_stack_index].clone();
             *open_upvalue.borrow_mut() = ObjUpvalue::Closed {
                 value: referenced_value,
             };
             closed_upvalues.push(abs_stack_index);
         }
         for closed_upvalue in closed_upvalues {
-            self.open_upvalues.remove(&closed_upvalue);
+            self.store.open_upvalues.remove(&closed_upvalue);
         }
         Ok(())
     }
@@ -261,7 +245,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         let receiver = self.peek_typed::<Pointer<ObjInstance>>(arg_count)?;
         let instance_fields = &receiver.borrow().fields;
         if let Some(value) = instance_fields.get(&method_name) {
-            self.value_stack[self.value_stack_top - arg_count - 1] = value.clone();
+            self.store.value_stack[self.store.value_stack_top - arg_count - 1] = value.clone();
             return self.call_value(value.clone(), arg_count);
         }
         let class = receiver.borrow().class.clone();
@@ -304,11 +288,11 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
             RuntimeValue::Closure(closure) => self.call(closure, arg_count),
             RuntimeValue::Native(native) => {
                 let native = native.borrow();
-                let args = (self.value_stack
-                    [self.value_stack_top - arg_count..self.value_stack_top])
+                let args = (self.store.value_stack
+                    [self.store.value_stack_top - arg_count..self.store.value_stack_top])
                     .to_vec();
                 let result = (native.function)(args);
-                self.value_stack_top -= arg_count + 1;
+                self.store.value_stack_top -= arg_count + 1;
                 self.push_value(result);
                 Ok(())
             }
@@ -322,7 +306,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
 
     fn frame_slot_to_peek_distance(&self, slot: usize) -> usize {
         let slot_distance =
-            self.value_stack_top - 1 - (self.current_frame().start_stack_index + slot);
+            self.store.value_stack_top - 1 - (self.current_frame().start_stack_index + slot);
         slot_distance
     }
 
@@ -332,8 +316,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
             #[cfg(feature = "debug")]
             {
                 println!();
-                for i in 0..self.value_stack_top {
-                    print!("[ {} ]", self.value_stack[i]);
+                for i in 0..self.store.value_stack_top {
+                    print!("[ {} ]", self.store.value_stack[i]);
                 }
                 println!();
                 println!("{instruction}");
@@ -376,7 +360,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 }
                 OpCode::GetGlobal => {
                     let name = self.read_string()?;
-                    let value = match self.globals.get(&name.chars) {
+                    let value = match self.store.globals.get(&name.chars) {
                         Some(v) => v.clone(),
                         None => {
                             self.runtime_error(format!("Undefined variable '{name}'.\n"));
@@ -387,17 +371,17 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 }
                 OpCode::SetGlobal => {
                     let name = self.read_string()?;
-                    if !self.globals.contains_key(&name.chars) {
+                    if !self.store.globals.contains_key(&name.chars) {
                         self.runtime_error(format!("Undefined variable '{name}'.\n"));
                         return Err(Error::Runtime);
                     }
                     let value = self.peek_value(0)?.clone();
-                    self.globals.insert(name.chars, value);
+                    self.store.globals.insert(name.chars, value);
                 }
                 OpCode::DefineGlobal => {
                     let name = self.read_string()?;
                     let value = self.pop_value()?.clone();
-                    self.globals.insert(name.chars, value);
+                    self.store.globals.insert(name.chars, value);
                 }
                 OpCode::GetUpvalue => {
                     let slot = self.read_byte()? as usize;
@@ -413,16 +397,16 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                             }
                         }
                     };
-                    let value = self.value_stack[location].clone();
+                    let value = self.store.value_stack[location].clone();
                     self.push_value(value);
                 }
                 OpCode::SetUpvalue => {
                     let slot = self.read_byte()? as usize;
                     let closure = self.current_closure();
-                    let mut closure = closure.borrow_mut();
                     let open_upvalue = self.store.insert_upvalue(ObjUpvalue::Open {
-                        location: self.value_stack_top - 1,
+                        location: self.store.value_stack_top - 1,
                     });
+                    let mut closure = closure.borrow_mut();
                     closure.upvalues[slot] = open_upvalue;
                 }
                 OpCode::GetProperty => {
@@ -574,6 +558,9 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                             self.println(format!("{string}"))?;
                         }
                         RuntimeValue::Nil => self.println("nil")?,
+                        RuntimeValue::Upvalue(upvalue) => {
+                            self.println(format!("{upvalue}"))?;
+                        }
                     }
                 }
                 OpCode::Jump => {
@@ -629,7 +616,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     }
                 }
                 OpCode::CloseUpvalue => {
-                    self.close_upvalues(self.value_stack_top - 1)?;
+                    self.close_upvalues(self.store.value_stack_top - 1)?;
                     self.pop_value()?;
                 }
                 OpCode::Return => {
@@ -637,10 +624,10 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     let slots = self.current_frame().slots;
                     self.close_upvalues(slots)?;
                     let start_index = self.pop_frame().ok_or(Error::Runtime)?.start_stack_index;
-                    if self.frame_stack_top == 0 {
+                    if self.store.frame_stack_top == 0 {
                         return Ok(());
                     }
-                    self.value_stack_top = start_index;
+                    self.store.value_stack_top = start_index;
                     self.push_value(result);
                 }
                 OpCode::Class => {
@@ -685,18 +672,18 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
             ));
             return Err(Error::Runtime);
         }
-        if self.frame_stack_top == MAX_FRAMES {
+        if self.store.frame_stack_top == MAX_FRAMES {
             self.runtime_error("Stack overflow.\n".into());
             return Err(Error::Runtime);
         }
-        let frame = &mut self.frame_stack[self.frame_stack_top];
+        let frame = &mut self.store.frame_stack[self.store.frame_stack_top];
         *frame = CallFrame {
             closure: Some(closure.clone()),
             ip: 0,
             slots: arg_count,
-            start_stack_index: self.value_stack_top - 1 - arg_count,
+            start_stack_index: self.store.value_stack_top - 1 - arg_count,
         };
-        self.frame_stack_top += 1;
+        self.store.frame_stack_top += 1;
         Ok(())
     }
 
@@ -741,35 +728,35 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     }
 
     fn push_value(&mut self, value: impl Into<RuntimeValue>) {
-        if self.value_stack_top == MAX_STACK_SIZE {
+        if self.store.value_stack_top == MAX_STACK_SIZE {
             panic!("IVME: Stack overflow.");
         }
-        self.value_stack[self.value_stack_top] = value.into();
-        self.value_stack_top += 1;
+        self.store.value_stack[self.store.value_stack_top] = value.into();
+        self.store.value_stack_top += 1;
     }
 
     fn pop_frame(&mut self) -> Option<CallFrame> {
-        if self.frame_stack_top == 0 {
+        if self.store.frame_stack_top == 0 {
             return None;
         }
-        self.frame_stack_top -= 1;
-        Some(self.frame_stack[self.frame_stack_top].clone())
+        self.store.frame_stack_top -= 1;
+        Some(self.store.frame_stack[self.store.frame_stack_top].clone())
     }
 
     fn pop_value(&mut self) -> Result<RuntimeValue, Error> {
-        if self.value_stack_top == 0 {
+        if self.store.value_stack_top == 0 {
             return Err(Error::Runtime);
         }
-        self.value_stack_top -= 1;
-        Ok(self.value_stack[self.value_stack_top].clone())
+        self.store.value_stack_top -= 1;
+        Ok(self.store.value_stack[self.store.value_stack_top].clone())
     }
 
     fn peek_value(&mut self, distance: usize) -> Result<&mut RuntimeValue, Error> {
-        if self.value_stack_top == 0 || distance > self.value_stack_top - 1 {
+        if self.store.value_stack_top == 0 || distance > self.store.value_stack_top - 1 {
             return Err(Error::Runtime);
         }
-        let index = self.value_stack_top - 1 - distance;
-        self.value_stack.get_mut(index).ok_or(Error::Runtime)
+        let index = self.store.value_stack_top - 1 - distance;
+        self.store.value_stack.get_mut(index).ok_or(Error::Runtime)
     }
 
     fn peek_typed<T: TryFrom<RuntimeValue, Error = Error>>(
@@ -1278,7 +1265,7 @@ mod test {
     }
 
     #[test]
-    fn it_reports_a_runtime_error() {
+    fn it_reports_a_runtime_error_foo() {
         let out = TestOut::default();
         let e_out = TestOut::default();
         let source = r#"
