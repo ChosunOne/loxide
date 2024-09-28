@@ -424,4 +424,29 @@ mod test {
         assert!(store.function_store.contains_key(&function_pointer));
         assert!(store.closure_store.contains_key(&closure_pointer));
     }
+
+    #[test]
+    fn it_traces_bound_methods() {
+        let mut store = Store::default();
+        let function = ObjFunction::default();
+        let function_pointer = store.insert_function(function);
+        let closure = ObjClosure {
+            function: function_pointer.clone(),
+            upvalues: Vec::new(),
+        };
+        let closure_pointer = store.insert_closure(closure);
+        let bound_method = ObjBoundMethod {
+            receiver: RuntimeValue::Nil,
+            method: closure_pointer.clone(),
+        };
+        let bound_method_pointer = store.insert_bound_method(bound_method);
+        store
+            .globals
+            .insert("test".into(), bound_method_pointer.clone().into());
+        store.next_gc = 0;
+        store.collect_garbage();
+        assert!(store.function_store.contains_key(&function_pointer));
+        assert!(store.closure_store.contains_key(&closure_pointer));
+        assert!(store.bound_method_store.contains_key(&bound_method_pointer));
+    }
 }
