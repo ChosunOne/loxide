@@ -337,9 +337,9 @@ mod test {
         };
         let string_size = string.size();
         let mut allocated_size = 0;
-        let mut next_gc = 1024;
+        let mut next_gc = 128;
         store.next_gc = next_gc;
-        for _ in 0..1_000 {
+        for _ in 0..100 {
             let pointer = store.insert_string(string.clone());
             allocated_size += string_size;
             if allocated_size > next_gc {
@@ -350,5 +350,55 @@ mod test {
             assert_eq!(store.next_gc, next_gc);
             assert!(store.string_store.contains_key(&pointer));
         }
+    }
+
+    #[test]
+    fn it_preserves_values_on_the_stack() {
+        let mut store = Store::default();
+        let string = ObjString {
+            chars: "should be preserved".to_owned(),
+        };
+        let string_to_remove = ObjString {
+            chars: "should be removed".to_owned(),
+        };
+        let pointer = store.insert_string(string);
+        let pointer_to_remove = store.insert_string(string_to_remove);
+        store.value_stack[0] = RuntimeValue::String(pointer.clone());
+        store.value_stack_top += 1;
+        store.next_gc = 0;
+        store.collect_garbage();
+        assert!(store.string_store.contains_key(&pointer));
+        assert!(!store.string_store.contains_key(&pointer_to_remove));
+    }
+
+    #[test]
+    fn it_preserves_globals() {
+        let mut store = Store::default();
+        let string = ObjString {
+            chars: "should be preserved".to_owned(),
+        };
+        let pointer = store.insert_string(string);
+        store.globals.insert("a".into(), pointer.clone().into());
+        store.next_gc = 0;
+        store.collect_garbage();
+        assert!(store.string_store.contains_key(&pointer));
+    }
+
+    #[test]
+    fn it_preserves_upvalues() {
+        let mut store = Store::default();
+        let string = ObjString {
+            chars: "should be preserved".to_owned(),
+        };
+        let pointer = store.insert_string(string);
+        let upvalue = ObjUpvalue::Closed {
+            value: pointer.clone().into(),
+        };
+        let upvalue_pointer = store.insert_upvalue(upvalue);
+        store.open_upvalues.insert(1, upvalue_pointer.clone());
+        store.next_gc = 0;
+        store.collect_garbage();
+        assert!(store.string_store.contains_key(&pointer));
+        assert!(store.upvalue_store.contains_key(&upvalue_pointer));
     }
 }
