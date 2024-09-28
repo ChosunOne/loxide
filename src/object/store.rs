@@ -401,4 +401,27 @@ mod test {
         assert!(store.string_store.contains_key(&pointer));
         assert!(store.upvalue_store.contains_key(&upvalue_pointer));
     }
+
+    #[test]
+    fn it_preserves_call_frame_values() {
+        let mut store = Store::default();
+        let function = ObjFunction::default();
+        let function_pointer = store.insert_function(function);
+        let closure = ObjClosure {
+            function: function_pointer.clone(),
+            upvalues: Vec::new(),
+        };
+        let closure_pointer = store.insert_closure(closure);
+        store.frame_stack[0] = CallFrame {
+            closure: Some(closure_pointer.clone()),
+            ip: 0,
+            slots: 0,
+            start_stack_index: 0,
+        };
+        store.frame_stack_top += 1;
+        store.next_gc = 0;
+        store.collect_garbage();
+        assert!(store.function_store.contains_key(&function_pointer));
+        assert!(store.closure_store.contains_key(&closure_pointer));
+    }
 }
