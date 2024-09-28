@@ -36,7 +36,7 @@ impl Scanner {
         let mut lexeme_builder = vec![];
 
         while let Some(c) = self.iter_peek() {
-            if !c.is_alphanumeric() {
+            if !c.is_alphanumeric() && c != '_' {
                 break;
             }
             lexeme_builder.push(c);
@@ -296,7 +296,7 @@ mod test {
 
     #[test]
     fn it_scans_an_identifier() {
-        let source = "identifier\nidentifier1234";
+        let source = "identifier\nidentifier1234\nidentifier_1234";
         let mut scanner = Scanner::new(source.into());
         let token = scanner.next().unwrap();
         assert_eq!(
@@ -314,6 +314,15 @@ mod test {
                 kind: TokenType::Identifier,
                 line: 2,
                 lexeme: "identifier1234".into()
+            }
+        );
+        let token = scanner.next().unwrap();
+        assert_eq!(
+            token,
+            Token {
+                kind: TokenType::Identifier,
+                line: 3,
+                lexeme: "identifier_1234".into()
             }
         );
     }

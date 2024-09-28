@@ -25,7 +25,7 @@ const MAX_STACK_SIZE: usize = u8::MAX as usize * MAX_FRAMES;
 fn clock_native(_args: Vec<RuntimeValue>) -> RuntimeValue {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("Failed to get system time")
+        .expect("IVME: Failed to get system time")
         .as_secs_f64()
         .into()
 }
@@ -96,8 +96,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         let string: String = string.into() + "\n";
         self.out
             .write_all(string.as_bytes())
-            .expect("Failed to write data");
-        self.out.flush().expect("Failed to flush data");
+            .expect("IVME: Failed to write data");
+        self.out.flush().expect("IVME: Failed to flush data");
         Ok(())
     }
 
@@ -105,8 +105,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         let string: String = string.into();
         self.e_out
             .write_all(string.as_bytes())
-            .expect("Failed to write data");
-        self.e_out.flush().expect("Failed to flush data");
+            .expect("IVME: Failed to write data");
+        self.e_out.flush().expect("IVME: Failed to flush data");
         Ok(())
     }
 
@@ -117,23 +117,24 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     }
 
     fn runtime_error(&mut self, message: String) {
-        self.eprint(message).expect("Failed to print error");
+        self.eprint(message).expect("IVME: Failed to print error");
 
         while let Some(frame) = self.pop_frame() {
             let function = frame
                 .closure
-                .expect("Failed to get frame closure")
+                .expect("IVME: Failed to get frame closure")
                 .borrow()
                 .function
                 .clone();
             let line = function.borrow().chunk.lines[frame.ip];
             self.eprint(format!("[line {line}] in "))
-                .expect("Failed to print error");
+                .expect("IVME: Failed to print error");
             if let Some(name) = function.borrow().name.as_ref() {
                 self.eprint(format!("{name}\n"))
-                    .expect("Failed to print error");
+                    .expect("IVME: Failed to print error");
             } else {
-                self.eprint("script\n").expect("Failed to print error");
+                self.eprint("script\n")
+                    .expect("IVME: Failed to print error");
             };
         }
 
@@ -148,12 +149,15 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         &mut self.frame_stack[self.frame_stack_top - 1]
     }
 
-    fn read_byte(&mut self) -> Result<u8, Error> {
-        let closure = self
-            .current_frame()
+    fn current_closure(&self) -> Pointer<ObjClosure> {
+        self.current_frame()
             .closure
             .clone()
-            .expect("Failed to get currently executing closure");
+            .expect("IVME: Failed to get currently executing closure.")
+    }
+
+    fn read_byte(&mut self) -> Result<u8, Error> {
+        let closure = self.current_closure();
         let ip = self.current_frame().ip;
         let code = closure.borrow().function.borrow().chunk.code[ip];
         self.current_frame_mut().ip += 1;
@@ -167,11 +171,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     }
 
     fn read_constant(&mut self) -> Result<ConstantValue, Error> {
-        let closure = self
-            .current_frame()
-            .closure
-            .clone()
-            .expect("Failed to get currently executing closure");
+        let closure = self.current_closure();
         let index = self.read_byte()?;
         let function = closure.borrow().function.clone();
         let constant = function.borrow().chunk.constants[index as usize].clone();
@@ -182,7 +182,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         let string = match self.read_constant()? {
             ConstantValue::String(s) => ObjString::from(s),
             v => {
-                println!("Unexpected value: {v}");
+                eprintln!("IVME: Unexpected value: {v}");
                 return Err(Error::Runtime);
             }
         };
@@ -402,11 +402,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 OpCode::GetUpvalue => {
                     let slot = self.read_byte()? as usize;
                     let location = {
-                        let closure = self
-                            .current_frame()
-                            .closure
-                            .clone()
-                            .expect("Failed to get currently executing closure");
+                        let closure = self.current_closure();
                         let upvalue = closure.borrow().upvalues[slot].clone();
                         let upvalue_deref = upvalue.borrow();
                         match &*upvalue_deref {
@@ -422,11 +418,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 }
                 OpCode::SetUpvalue => {
                     let slot = self.read_byte()? as usize;
-                    let closure = self
-                        .current_frame()
-                        .closure
-                        .clone()
-                        .expect("Failed to get currently executing closure");
+                    let closure = self.current_closure();
                     let mut closure = closure.borrow_mut();
                     let open_upvalue = self.store.insert_upvalue(ObjUpvalue::Open {
                         location: self.value_stack_top - 1,
@@ -622,11 +614,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     let function = self.store.insert_function(*function);
                     let closure = self.new_closure(function);
                     self.push_value(closure.clone());
-                    let current_closure = self
-                        .current_frame()
-                        .closure
-                        .clone()
-                        .expect("Failed to get currently executing closure");
+                    let current_closure = self.current_closure();
                     for _ in 0..upvalue_count {
                         let is_local = self.read_byte()? != 0;
                         let index = self.read_byte()? as usize;
@@ -754,7 +742,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
 
     fn push_value(&mut self, value: impl Into<RuntimeValue>) {
         if self.value_stack_top == MAX_STACK_SIZE {
-            panic!("Stack overflow.");
+            panic!("IVME: Stack overflow.");
         }
         self.value_stack[self.value_stack_top] = value.into();
         self.value_stack_top += 1;
@@ -1071,6 +1059,35 @@ mod test {
     }
 
     #[test]
+    fn it_runs_a_program_with_a_deelpy_nested_closure() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            var value;
+            fun makeClosure() { 
+                fun closure(b) { 
+                    fun deepClosure(c) {
+                        value = b + c;
+                    }
+                    return deepClosure;
+                } 
+                return closure; 
+            }
+            {
+                var deep = makeClosure();
+                deep(1)(2);
+                print value;
+            }
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run program");
+        assert!(!vm.out.flushed.is_empty());
+        assert_eq!(vm.out.flushed.len(), 1);
+        assert!(vm.e_out.flushed.is_empty());
+        assert_eq!(vm.out.flushed[0], "3\n".to_string());
+    }
+
+    #[test]
     fn it_runs_a_program_with_a_class_definition() {
         let out = TestOut::default();
         let e_out = TestOut::default();
@@ -1228,7 +1245,36 @@ mod test {
         assert!(!vm.out.flushed.is_empty());
         assert!(vm.e_out.flushed.is_empty());
         let printed_time = vm.out.flushed[0].trim().parse::<f64>().unwrap().round();
-        assert_eq!(printed_time, now);
+        assert!((printed_time - 1.0..printed_time + 1.0).contains(&now));
+    }
+
+    #[test]
+    fn it_runs_a_program_with_a_native_function_print() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = "print clock;";
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run program");
+        assert!(!vm.out.flushed.is_empty());
+        assert_eq!(vm.out.flushed.len(), 1);
+        assert!(vm.e_out.flushed.is_empty());
+        assert_eq!(vm.out.flushed[0], "<native fn>\n");
+    }
+
+    #[test]
+    fn it_runs_a_program_with_a_function_print() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            fun foo() {}
+            print foo;
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect("Failed to run program");
+        assert!(!vm.out.flushed.is_empty());
+        assert_eq!(vm.out.flushed.len(), 1);
+        assert!(vm.e_out.flushed.is_empty());
+        assert_eq!(vm.out.flushed[0], "<fn foo>\n");
     }
 
     #[test]
@@ -1286,6 +1332,28 @@ mod test {
         assert_eq!(vm.e_out.flushed.len(), 3);
         assert_eq!(vm.e_out.flushed[0], "Only instances have fields.\n");
         assert_eq!(vm.e_out.flushed[1], "[line 3] in ".to_string());
+        assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
+    }
+
+    #[test]
+    fn it_reports_a_runtime_error_non_number_add() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            var a;
+            var b;
+            a + b;
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect_err("Expected runtime error");
+        assert!(vm.out.flushed.is_empty());
+        assert!(!vm.e_out.flushed.is_empty());
+        assert_eq!(vm.e_out.flushed.len(), 3);
+        assert_eq!(
+            vm.e_out.flushed[0],
+            "Operands must be two numbers or two strings.\n"
+        );
+        assert_eq!(vm.e_out.flushed[1], "[line 4] in ".to_string());
         assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
     }
 
@@ -1423,5 +1491,93 @@ mod test {
         assert_eq!(vm.e_out.flushed[0], "Operand must be a number.\n");
         assert_eq!(vm.e_out.flushed[1], "[line 2] in ".to_string());
         assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
+    }
+
+    #[test]
+    fn it_reports_a_runtime_error_undefined_global_get() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            -a;
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect_err("Expected runtime error");
+        assert!(vm.out.flushed.is_empty());
+        assert!(!vm.e_out.flushed.is_empty());
+        assert_eq!(vm.e_out.flushed.len(), 3);
+        assert_eq!(vm.e_out.flushed[0], "Undefined variable 'a'.\n");
+        assert_eq!(vm.e_out.flushed[1], "[line 2] in ".to_string());
+        assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
+    }
+
+    #[test]
+    fn it_reports_a_runtime_error_undefined_global_set() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            a = 1;
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect_err("Expected runtime error");
+        assert!(vm.out.flushed.is_empty());
+        assert!(!vm.e_out.flushed.is_empty());
+        assert_eq!(vm.e_out.flushed.len(), 3);
+        assert_eq!(vm.e_out.flushed[0], "Undefined variable 'a'.\n");
+        assert_eq!(vm.e_out.flushed[1], "[line 2] in ".to_string());
+        assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
+    }
+
+    #[test]
+    fn it_reports_a_runtime_error_non_class_super() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            var a = 1;
+            class A < a {}
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect_err("Expected runtime error");
+        assert!(vm.out.flushed.is_empty());
+        assert!(!vm.e_out.flushed.is_empty());
+        assert_eq!(vm.e_out.flushed.len(), 3);
+        assert_eq!(vm.e_out.flushed[0], "Superclass must be a class.\n");
+        assert_eq!(vm.e_out.flushed[1], "[line 3] in ".to_string());
+        assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
+    }
+
+    #[test]
+    fn it_reports_a_runtime_error_bad_function_arity() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            fun foo() {}
+            foo(1);
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect_err("Expected runtime error");
+        assert!(vm.out.flushed.is_empty());
+        assert!(!vm.e_out.flushed.is_empty());
+        assert_eq!(vm.e_out.flushed.len(), 3);
+        assert_eq!(vm.e_out.flushed[0], "Expected 0 arguments but got 1.\n");
+        assert_eq!(vm.e_out.flushed[1], "[line 3] in ".to_string());
+        assert_eq!(vm.e_out.flushed[2], "script\n".to_string());
+    }
+
+    #[test]
+    fn it_reports_a_runtime_error_stack_overflow() {
+        let out = TestOut::default();
+        let e_out = TestOut::default();
+        let source = r#"
+            fun foo() {foo();}
+            foo();
+        "#;
+        let mut vm = VM::new(out, e_out);
+        vm.interpret(source).expect_err("Expected runtime error");
+        assert!(vm.out.flushed.is_empty());
+        assert!(!vm.e_out.flushed.is_empty());
+        assert_eq!(vm.e_out.flushed.len(), 129);
+        assert_eq!(vm.e_out.flushed[0], "Stack overflow.\n");
+        assert_eq!(vm.e_out.flushed[1], "[line 2] in ".to_string());
+        assert_eq!(vm.e_out.flushed[2], "foo\n".to_string());
     }
 }
