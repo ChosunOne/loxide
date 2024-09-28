@@ -5,6 +5,19 @@ edition = "2021"
 
 [dependencies]
 
-[features]
+[dev-dependencies]
+criterion = "^0.5.1"
 
+[[bench]]
+name = "fibonacci"
+harness = false
+
+[profile.release]
+lto = true
+opt-level = 3
+codegen-units = 1
+incremental = false
+debug = false
+
+[features]
 debug = []
