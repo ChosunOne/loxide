@@ -1,5 +1,5 @@
 use crate::{chunk::Chunk, value::ConstantValue};
-use std::fmt::Display;
+use std::{cell::RefCell, fmt::Display, rc::Rc};
 
 use super::HeapSize;
 
@@ -7,17 +7,18 @@ use super::HeapSize;
 pub struct ObjFunction {
     pub arity: usize,
     pub upvalue_count: usize,
-    pub chunk: Chunk,
+    pub chunk: Rc<RefCell<Chunk>>,
     pub name: Option<String>,
 }
 
 impl HeapSize for ObjFunction {
     fn size(&self) -> usize {
         size_of::<usize>() * 2
-            + self.chunk.code.len()
-            + self.chunk.lines.len() * size_of::<usize>()
+            + self.chunk.borrow().code.len()
+            + self.chunk.borrow().lines.len() * size_of::<usize>()
             + self
                 .chunk
+                .borrow()
                 .constants
                 .iter()
                 .map(|x| match &**x {

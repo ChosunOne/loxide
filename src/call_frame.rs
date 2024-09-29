@@ -1,7 +1,14 @@
-use crate::object::{ObjClosure, Pointer};
+use std::{cell::RefCell, rc::Rc};
+
+use crate::{
+    chunk::Chunk,
+    object::{ObjClosure, Pointer},
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct CallFrame {
+    /// A reference to the currently executing function
+    pub(crate) chunk: Rc<RefCell<Chunk>>,
     /// A reference to the currently executing closure
     pub(crate) closure: Option<Pointer<ObjClosure>>,
     /// The index into the closure's code

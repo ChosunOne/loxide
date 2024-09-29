@@ -317,6 +317,8 @@ impl Display for OpCode {
 #[cfg(test)]
 mod test {
 
+    use std::cell::RefCell;
+
     use crate::object::obj_function::ObjFunction;
 
     use super::*;
@@ -437,7 +439,7 @@ mod test {
         let function = ObjFunction {
             arity: 0,
             name: Some(function_name),
-            chunk: Chunk::default(),
+            chunk: Rc::new(RefCell::new(Chunk::default())),
             upvalue_count: 2,
         };
         chunk.add_constant(function.into());

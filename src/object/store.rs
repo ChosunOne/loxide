@@ -406,6 +406,7 @@ mod test {
         let closure_pointer = store.insert_closure(closure);
         store.frame_stack[0] = CallFrame {
             closure: Some(closure_pointer.clone()),
+            chunk: function_pointer.borrow().chunk.clone(),
             ip: 0,
             slots: 0,
             start_stack_index: 0,
