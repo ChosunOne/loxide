@@ -1,19 +1,19 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::Display, hash::BuildHasherDefault};
 
 use crate::{object::ObjClass, value::RuntimeValue};
 
-use super::{HeapSize, Pointer};
+use super::{HeapSize, ObjString, ObjStringHasher, Pointer};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ObjInstance {
     pub class: Pointer<ObjClass>,
-    pub fields: HashMap<String, RuntimeValue>,
+    pub fields: HashMap<ObjString, RuntimeValue, BuildHasherDefault<ObjStringHasher>>,
 }
 
 impl HeapSize for ObjInstance {
     fn size(&self) -> usize {
         size_of::<Pointer<ObjClass>>()
-            + self.fields.keys().map(|x| x.len()).sum::<usize>()
+            + self.fields.keys().map(|x| x.chars.len()).sum::<usize>()
             + self.fields.values().map(size_of_val).sum::<usize>()
     }
 }

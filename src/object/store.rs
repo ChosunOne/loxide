@@ -3,6 +3,7 @@ use std::{
     cell::RefCell,
     collections::{BTreeMap, HashMap, HashSet},
     fmt::Debug,
+    hash::BuildHasherDefault,
     rc::Rc,
 };
 
@@ -10,7 +11,7 @@ use crate::{call_frame::CallFrame, value::RuntimeValue, vm::MAX_FRAMES};
 
 use super::{
     HeapSize, ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjNative, ObjString,
-    ObjUpvalue, ObjectStore, Pointer,
+    ObjStringHasher, ObjUpvalue, ObjectStore, Pointer,
 };
 
 const GC_HEAP_GROW_FACTOR: usize = 2;
@@ -31,7 +32,7 @@ pub struct Store {
     pub value_stack_top: usize,
     pub frame_stack_top: usize,
     pub open_upvalues: BTreeMap<usize, Pointer<ObjUpvalue>>,
-    pub globals: HashMap<String, RuntimeValue>,
+    pub globals: HashMap<ObjString, RuntimeValue, BuildHasherDefault<ObjStringHasher>>,
     bytes_allocated: usize,
     next_gc: usize,
 }
@@ -332,9 +333,7 @@ mod test {
     #[test]
     fn it_runs_the_garbage_collector_strings() {
         let mut store = Store::default();
-        let string = ObjString {
-            chars: "test string".to_owned(),
-        };
+        let string: ObjString = "test string".into();
         let string_size = string.size();
         let mut allocated_size = 0;
         let mut next_gc = 128;
@@ -355,12 +354,8 @@ mod test {
     #[test]
     fn it_preserves_values_on_the_stack() {
         let mut store = Store::default();
-        let string = ObjString {
-            chars: "should be preserved".to_owned(),
-        };
-        let string_to_remove = ObjString {
-            chars: "should be removed".to_owned(),
-        };
+        let string = "should be preserved".into();
+        let string_to_remove = "should be removed".into();
         let pointer = store.insert_string(string);
         let pointer_to_remove = store.insert_string(string_to_remove);
         store.value_stack[0] = RuntimeValue::String(pointer.clone());
@@ -374,9 +369,7 @@ mod test {
     #[test]
     fn it_preserves_globals() {
         let mut store = Store::default();
-        let string = ObjString {
-            chars: "should be preserved".to_owned(),
-        };
+        let string = "should be preserved".into();
         let pointer = store.insert_string(string);
         store.globals.insert("a".into(), pointer.clone().into());
         store.next_gc = 0;
@@ -387,9 +380,7 @@ mod test {
     #[test]
     fn it_preserves_upvalues() {
         let mut store = Store::default();
-        let string = ObjString {
-            chars: "should be preserved".to_owned(),
-        };
+        let string = "should be preserved".into();
         let pointer = store.insert_string(string);
         let upvalue = ObjUpvalue::Closed {
             value: pointer.clone().into(),
@@ -453,9 +444,9 @@ mod test {
     #[test]
     fn it_traces_classes() {
         let mut store = Store::default();
-        let class_name = ObjString {
-            chars: "TestClass".into(),
-        };
+        let init_string = ObjString::from("init");
+
+        let class_name = "TestClass".into();
         let class_name_pointer = store.insert_string(class_name);
         let function = ObjFunction::default();
         let function_pointer = store.insert_function(function);
@@ -464,9 +455,11 @@ mod test {
             upvalues: Vec::new(),
         };
         let closure_pointer = store.insert_closure(closure);
+        let mut methods = HashMap::default();
+        methods.insert(init_string, closure_pointer.clone());
         let class = ObjClass {
             name: class_name_pointer.clone(),
-            methods: [("init".to_owned(), closure_pointer.clone())].into(),
+            methods,
         };
         let class_pointer = store.insert_class(class);
         store
@@ -505,9 +498,8 @@ mod test {
     #[test]
     fn it_traces_instances() {
         let mut store = Store::default();
-        let class_name = ObjString {
-            chars: "TestClass".into(),
-        };
+        let init_string = ObjString::from("init");
+        let class_name = "TestClass".into();
         let class_name_pointer = store.insert_string(class_name);
         let function = ObjFunction::default();
         let function_pointer = store.insert_function(function);
@@ -516,14 +508,18 @@ mod test {
             upvalues: Vec::new(),
         };
         let closure_pointer = store.insert_closure(closure);
+        let mut methods = HashMap::default();
+        methods.insert(init_string, closure_pointer.clone());
         let class = ObjClass {
             name: class_name_pointer.clone(),
-            methods: [("init".to_owned(), closure_pointer.clone())].into(),
+            methods,
         };
         let class_pointer = store.insert_class(class);
+        let mut fields = HashMap::default();
+        fields.insert("a".into(), RuntimeValue::Nil);
         let instance = ObjInstance {
             class: class_pointer.clone(),
-            fields: [("a".to_owned(), RuntimeValue::Nil)].into(),
+            fields,
         };
         let instance_pointer = store.insert_instance(instance);
         store

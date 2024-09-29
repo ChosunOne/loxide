@@ -19,5 +19,9 @@ codegen-units = 1
 incremental = false
 debug = false
 
+[profile.profiling]
+inherits = "release"
+debug = true
+
 [features]
 debug = []

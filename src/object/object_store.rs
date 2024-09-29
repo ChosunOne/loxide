@@ -15,7 +15,7 @@ use super::{
 };
 
 #[derive(Default)]
-struct PointerHasher(u64);
+pub struct PointerHasher(u64);
 
 impl Hasher for PointerHasher {
     fn finish(&self) -> u64 {
@@ -263,7 +263,7 @@ mod test {
         assert!(retrieved_value.is_none());
         assert_eq!(
             freed_bytes,
-            "test string value".to_owned().len() + size_of::<String>()
+            "test string value".to_owned().len() + size_of::<String>() + size_of::<u32>()
         );
     }
 }

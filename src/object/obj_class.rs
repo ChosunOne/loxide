@@ -1,18 +1,18 @@
 use crate::object::{ObjClosure, ObjString};
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::Display, hash::BuildHasherDefault};
 
-use super::{HeapSize, Pointer};
+use super::{HeapSize, ObjStringHasher, Pointer};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ObjClass {
     pub name: Pointer<ObjString>,
-    pub methods: HashMap<String, Pointer<ObjClosure>>,
+    pub methods: HashMap<ObjString, Pointer<ObjClosure>, BuildHasherDefault<ObjStringHasher>>,
 }
 
 impl HeapSize for ObjClass {
     fn size(&self) -> usize {
         self.methods.len() * size_of::<Pointer<ObjClosure>>()
-            + self.methods.keys().map(|x| x.len()).sum::<usize>()
+            + self.methods.keys().map(|x| x.chars.len()).sum::<usize>()
     }
 }
 

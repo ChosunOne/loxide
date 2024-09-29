@@ -5,7 +5,7 @@ fun fib(x) {
     return fib(x - 1) + fib(x - 2);
 }
 var start = clock();
-var result = fib(20);
+var result = fib(40);
 var end = clock();
 print end - start;
 print result;

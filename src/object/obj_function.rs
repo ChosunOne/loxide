@@ -22,7 +22,7 @@ impl HeapSize for ObjFunction {
                 .iter()
                 .map(|x| match x {
                     crate::value::ConstantValue::Number(_) => size_of::<f64>(),
-                    crate::value::ConstantValue::String(s) => s.len(),
+                    crate::value::ConstantValue::String(s) => s.chars.len(),
                     crate::value::ConstantValue::Function(obj_function) => obj_function.size(),
                 })
                 .sum::<usize>()

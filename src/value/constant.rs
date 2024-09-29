@@ -1,11 +1,15 @@
 use std::fmt::Display;
 
-use crate::{error::Error, object::ObjFunction, value::RuntimeValue};
+use crate::{
+    error::Error,
+    object::{ObjFunction, ObjString},
+    value::RuntimeValue,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConstantValue {
     Number(f64),
-    String(String),
+    String(ObjString),
     Function(Box<ObjFunction>),
 }
 
@@ -17,7 +21,7 @@ impl From<f64> for ConstantValue {
 
 impl From<String> for ConstantValue {
     fn from(value: String) -> Self {
-        Self::String(value)
+        Self::String(value.into())
     }
 }
 
