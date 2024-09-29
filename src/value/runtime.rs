@@ -3,8 +3,8 @@ use std::{fmt::Display, hash::Hash};
 use crate::{
     error::Error,
     object::{
-        ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjNative, ObjString,
-        ObjUpvalue, Pointer,
+        HeapSize, ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjNative,
+        ObjString, ObjUpvalue, Pointer,
     },
 };
 
@@ -33,6 +33,12 @@ impl RuntimeValue {
             Self::Bool(b) => !b,
             _ => false,
         }
+    }
+}
+
+impl HeapSize for RuntimeValue {
+    fn size(&self) -> usize {
+        size_of::<RuntimeValue>()
     }
 }
 

@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     io::{Stderr, Stdout, Write},
     rc::Rc,
     time::{SystemTime, UNIX_EPOCH},
@@ -15,6 +15,7 @@ use crate::{
         obj_native::NativeFn, store::MAX_STACK_SIZE, ObjBoundMethod, ObjClass, ObjClosure,
         ObjFunction, ObjInstance, ObjNative, ObjString, ObjUpvalue, Pointer, Store,
     },
+    table::Table,
     value::{ConstantValue, RuntimeValue},
 };
 
@@ -376,12 +377,12 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 }
                 OpCode::SetGlobal => {
                     let name = self.read_string()?;
-                    if !self.store.globals.contains_key(&name) {
+                    let value = self.peek_value(0)?.clone();
+                    if self.store.globals.insert(name.clone(), value) {
+                        self.store.globals.remove(&name);
                         self.runtime_error(format!("Undefined variable '{name}'.\n"));
                         return Err(Error::Runtime);
                     }
-                    let value = self.peek_value(0)?.clone();
-                    self.store.globals.insert(name, value);
                 }
                 OpCode::DefineGlobal => {
                     let name = self.read_string()?;
@@ -646,12 +647,21 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                         return Err(Error::Runtime);
                     };
                     let subclass = self.peek_typed::<Pointer<ObjClass>>(0)?;
-                    let methods: Vec<_> = superclass
+                    let mut methods: Vec<_> = superclass
                         .borrow()
                         .methods
                         .iter()
-                        .map(|x| (x.0.clone(), x.1.clone()))
-                        .collect();
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    methods.retain(|x| {
+                        x.clone()
+                            .is_some_and(|y| y.key.is_some() && y.value.is_some())
+                    });
+                    let methods = methods
+                        .into_iter()
+                        .map(Option::unwrap)
+                        .map(|x| (x.key.unwrap(), x.value.unwrap()))
+                        .collect::<Vec<_>>();
                     for (key, value) in methods {
                         subclass.borrow_mut().methods.insert(key, value);
                     }
@@ -697,7 +707,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         let name_ref = self.store.insert_string(name);
         let class = ObjClass {
             name: name_ref,
-            methods: HashMap::default(),
+            methods: Table::default(),
         };
         self.store.insert_class(class)
     }
@@ -717,7 +727,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     fn new_instance(&mut self, class: Pointer<ObjClass>) -> Pointer<ObjInstance> {
         let instance = ObjInstance {
             class,
-            fields: HashMap::default(),
+            fields: Table::default(),
         };
         self.store.insert_instance(instance)
     }

@@ -1,17 +1,16 @@
 use std::{
     array,
     cell::RefCell,
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashSet},
     fmt::Debug,
-    hash::BuildHasherDefault,
     rc::Rc,
 };
 
-use crate::{call_frame::CallFrame, value::RuntimeValue, vm::MAX_FRAMES};
+use crate::{call_frame::CallFrame, table::Table, value::RuntimeValue, vm::MAX_FRAMES};
 
 use super::{
     HeapSize, ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjNative, ObjString,
-    ObjStringHasher, ObjUpvalue, ObjectStore, Pointer,
+    ObjUpvalue, ObjectStore, Pointer,
 };
 
 const GC_HEAP_GROW_FACTOR: usize = 2;
@@ -32,7 +31,7 @@ pub struct Store {
     pub value_stack_top: usize,
     pub frame_stack_top: usize,
     pub open_upvalues: BTreeMap<usize, Pointer<ObjUpvalue>>,
-    pub globals: HashMap<ObjString, RuntimeValue, BuildHasherDefault<ObjStringHasher>>,
+    pub globals: Table<RuntimeValue>,
     bytes_allocated: usize,
     next_gc: usize,
 }
@@ -48,7 +47,7 @@ impl Default for Store {
             native_store: ObjectStore::<ObjNative>::default(),
             string_store: ObjectStore::<ObjString>::default(),
             upvalue_store: ObjectStore::<ObjUpvalue>::default(),
-            globals: HashMap::default(),
+            globals: Table::default(),
             value_stack: array::from_fn(|_| RuntimeValue::default()),
             frame_stack: array::from_fn(|_| CallFrame::default()),
             frame_stack_top: 0,
@@ -328,6 +327,8 @@ where
 
 #[cfg(test)]
 mod test {
+    use crate::table::Table;
+
     use super::*;
 
     #[test]
@@ -455,7 +456,7 @@ mod test {
             upvalues: Vec::new(),
         };
         let closure_pointer = store.insert_closure(closure);
-        let mut methods = HashMap::default();
+        let mut methods = Table::default();
         methods.insert(init_string, closure_pointer.clone());
         let class = ObjClass {
             name: class_name_pointer.clone(),
@@ -508,14 +509,14 @@ mod test {
             upvalues: Vec::new(),
         };
         let closure_pointer = store.insert_closure(closure);
-        let mut methods = HashMap::default();
+        let mut methods = Table::default();
         methods.insert(init_string, closure_pointer.clone());
         let class = ObjClass {
             name: class_name_pointer.clone(),
             methods,
         };
         let class_pointer = store.insert_class(class);
-        let mut fields = HashMap::default();
+        let mut fields = Table::default();
         fields.insert("a".into(), RuntimeValue::Nil);
         let instance = ObjInstance {
             class: class_pointer.clone(),

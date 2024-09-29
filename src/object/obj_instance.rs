@@ -1,20 +1,24 @@
-use std::{collections::HashMap, fmt::Display, hash::BuildHasherDefault};
+use std::fmt::Display;
 
-use crate::{object::ObjClass, value::RuntimeValue};
+use crate::{object::ObjClass, table::Table};
 
-use super::{HeapSize, ObjString, ObjStringHasher, Pointer};
+use super::{HeapSize, Pointer};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug)]
 pub struct ObjInstance {
     pub class: Pointer<ObjClass>,
-    pub fields: HashMap<ObjString, RuntimeValue, BuildHasherDefault<ObjStringHasher>>,
+    pub fields: Table,
+}
+
+impl PartialEq for ObjInstance {
+    fn eq(&self, other: &Self) -> bool {
+        self.class == other.class
+    }
 }
 
 impl HeapSize for ObjInstance {
     fn size(&self) -> usize {
-        size_of::<Pointer<ObjClass>>()
-            + self.fields.keys().map(|x| x.chars.len()).sum::<usize>()
-            + self.fields.values().map(size_of_val).sum::<usize>()
+        size_of::<Pointer<ObjClass>>() + self.fields.size()
     }
 }
 

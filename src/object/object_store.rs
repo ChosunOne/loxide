@@ -183,6 +183,12 @@ impl<T> Hash for Pointer<T> {
     }
 }
 
+impl<T> HeapSize for Pointer<T> {
+    fn size(&self) -> usize {
+        size_of::<Pointer<T>>()
+    }
+}
+
 #[derive(Debug)]
 pub struct ObjectStore<T> {
     map: HashMap<Pointer<T>, Rc<RefCell<T>>, BuildHasherDefault<PointerHasher>>,

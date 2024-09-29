@@ -1,18 +1,23 @@
-use crate::object::{ObjClosure, ObjString};
-use std::{collections::HashMap, fmt::Display, hash::BuildHasherDefault};
+use crate::{object::ObjString, table::Table};
+use std::fmt::Display;
 
-use super::{HeapSize, ObjStringHasher, Pointer};
+use super::{HeapSize, ObjClosure, Pointer};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub struct ObjClass {
     pub name: Pointer<ObjString>,
-    pub methods: HashMap<ObjString, Pointer<ObjClosure>, BuildHasherDefault<ObjStringHasher>>,
+    pub methods: Table<Pointer<ObjClosure>>,
+}
+
+impl PartialEq for ObjClass {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
 }
 
 impl HeapSize for ObjClass {
     fn size(&self) -> usize {
-        self.methods.len() * size_of::<Pointer<ObjClosure>>()
-            + self.methods.keys().map(|x| x.chars.len()).sum::<usize>()
+        size_of::<Pointer<ObjString>>() + self.methods.size()
     }
 }
 
