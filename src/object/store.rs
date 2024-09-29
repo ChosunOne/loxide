@@ -26,9 +26,8 @@ pub struct Store {
     pub native_store: ObjectStore<ObjNative>,
     pub string_store: ObjectStore<ObjString>,
     pub upvalue_store: ObjectStore<ObjUpvalue>,
-    pub value_stack: [RuntimeValue; MAX_STACK_SIZE],
+    pub value_stack: Vec<RuntimeValue>,
     pub frame_stack: [CallFrame; MAX_FRAMES],
-    pub value_stack_top: usize,
     pub frame_stack_top: usize,
     pub open_upvalues: BTreeMap<usize, Pointer<ObjUpvalue>>,
     pub globals: Table<RuntimeValue>,
@@ -48,10 +47,9 @@ impl Default for Store {
             string_store: ObjectStore::<ObjString>::default(),
             upvalue_store: ObjectStore::<ObjUpvalue>::default(),
             globals: Table::default(),
-            value_stack: array::from_fn(|_| RuntimeValue::default()),
+            value_stack: Vec::with_capacity(MAX_STACK_SIZE),
             frame_stack: array::from_fn(|_| CallFrame::default()),
             frame_stack_top: 0,
-            value_stack_top: 0,
             open_upvalues: BTreeMap::default(),
             next_gc: 1024 * 1024,
             bytes_allocated: 0,
@@ -210,7 +208,7 @@ impl Store {
         reachable_objects: &mut HashSet<RuntimeValue>,
         tracing_stack: &mut Vec<RuntimeValue>,
     ) {
-        for value in &self.value_stack[..self.value_stack_top] {
+        for value in &self.value_stack {
             mark_value(value.clone(), reachable_objects, tracing_stack);
         }
         for frame in &self.frame_stack[..self.frame_stack_top] {
@@ -359,8 +357,9 @@ mod test {
         let string_to_remove = "should be removed".into();
         let pointer = store.insert_string(string);
         let pointer_to_remove = store.insert_string(string_to_remove);
-        store.value_stack[0] = RuntimeValue::String(pointer.clone());
-        store.value_stack_top += 1;
+        store
+            .value_stack
+            .push(RuntimeValue::String(pointer.clone()));
         store.next_gc = 0;
         store.collect_garbage();
         assert!(store.string_store.contains_key(&pointer));

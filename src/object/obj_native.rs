@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display};
 
 use super::HeapSize;
 
-pub type NativeFn = fn(Vec<RuntimeValue>) -> RuntimeValue;
+pub type NativeFn = fn(&[RuntimeValue]) -> RuntimeValue;
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct ObjNative {

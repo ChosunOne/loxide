@@ -21,7 +21,7 @@ use crate::{
 
 pub const MAX_FRAMES: usize = 64;
 
-fn clock_native(_args: Vec<RuntimeValue>) -> RuntimeValue {
+fn clock_native(_args: &[RuntimeValue]) -> RuntimeValue {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("IVME: Failed to get system time")
@@ -67,10 +67,10 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
 
         let function = Rc::new(RefCell::new(function));
         let function_ref = self.store.insert_function_pointer(function);
-        self.push_value(function_ref.clone());
+        self.push_value(function_ref.clone().into());
         let closure = self.new_closure(function_ref);
         self.pop_value();
-        self.push_value(closure.clone());
+        self.push_value(closure.clone().into());
         self.call(&closure, 0)?;
         self.run()?;
         self.pop_value();
@@ -99,7 +99,6 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     }
 
     fn reset_stack(&mut self) {
-        self.store.value_stack_top = 0;
         self.store.frame_stack_top = 0;
         self.store.open_upvalues = BTreeMap::default();
     }
@@ -175,7 +174,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         let receiver = self.peek_value(0).clone();
         let bound = self.new_bound_method(receiver, method.clone());
         self.pop_value();
-        self.push_value(bound);
+        self.push_value(bound.into());
         Ok(())
     }
 
@@ -185,9 +184,9 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
             return upvalue.clone();
         }
 
-        let upvalue = ObjUpvalue::Open {
+        let upvalue = dbg!(ObjUpvalue::Open {
             location: absolute_stack_index,
-        };
+        });
         let upvalue_ptr = self.store.insert_upvalue(upvalue);
 
         self.store
@@ -204,9 +203,9 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 break;
             }
             let referenced_value = self.store.value_stack[abs_stack_index].clone();
-            *open_upvalue.borrow_mut() = ObjUpvalue::Closed {
+            *open_upvalue.borrow_mut() = dbg!(ObjUpvalue::Closed {
                 value: referenced_value,
-            };
+            });
             closed_upvalues.push(abs_stack_index);
         }
         for closed_upvalue in closed_upvalues {
@@ -229,7 +228,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         let new_string = self.store.insert_string(result.into());
         self.pop_value();
         self.pop_value();
-        self.push_value(new_string);
+        self.push_value(new_string.into());
         Ok(())
     }
 
@@ -239,7 +238,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
             .expect("IVME: Failed to get instance.");
         let instance_fields = &receiver.borrow().fields;
         if let Some(value) = instance_fields.get(method_name) {
-            self.store.value_stack[self.store.value_stack_top - arg_count - 1] = value.clone();
+            let stack_top = self.store.value_stack.len() - 1;
+            self.store.value_stack[stack_top - arg_count] = value.clone();
             return self.call_value(value, arg_count);
         }
         let class = receiver.borrow().class.clone();
@@ -282,11 +282,11 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
             RuntimeValue::Closure(closure) => self.call(closure, arg_count),
             RuntimeValue::Native(native) => {
                 let native = native.borrow();
-                let args = (self.store.value_stack
-                    [self.store.value_stack_top - arg_count..self.store.value_stack_top])
-                    .to_vec();
+                let stack_top = self.store.value_stack.len();
+                let args = &self.store.value_stack[stack_top - arg_count..stack_top];
                 let result = (native.function)(args);
-                self.store.value_stack_top -= arg_count + 1;
+
+                self.store.value_stack.truncate(stack_top - arg_count - 1);
                 self.push_value(result);
                 Ok(())
             }
@@ -300,7 +300,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
 
     fn frame_slot_to_peek_distance(&self, slot: usize) -> usize {
         let slot_distance =
-            self.store.value_stack_top - 1 - (self.current_frame().start_stack_index + slot);
+            self.store.value_stack.len() - 1 - (self.current_frame().start_stack_index + slot);
         slot_distance
     }
 
@@ -310,7 +310,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
             #[cfg(feature = "debug")]
             {
                 println!();
-                for i in 0..self.store.value_stack_top {
+                for i in 0..self.store.value_stack.len() {
                     print!("[ {} ]", self.store.value_stack[i]);
                 }
                 println!();
@@ -403,7 +403,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 OpCode::SetUpvalue => {
                     let slot = self.read_byte() as usize;
                     let open_upvalue = self.store.insert_upvalue(ObjUpvalue::Open {
-                        location: self.store.value_stack_top - 1,
+                        location: self.frame_slot_to_peek_distance(slot),
                     });
                     let closure = self.current_closure();
                     let mut closure = closure.borrow_mut();
@@ -460,7 +460,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 OpCode::Equal => {
                     let a = self.pop_value();
                     let b = self.pop_value();
-                    self.push_value(a == b);
+                    self.push_value((a == b).into());
                 }
                 OpCode::Greater => {
                     if self.peek_typed::<f64>(0).is_err() || self.peek_typed::<f64>(1).is_err() {
@@ -469,7 +469,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     }
                     let b = self.pop_typed::<f64>();
                     let a = self.pop_typed::<f64>();
-                    self.push_value(a > b);
+                    self.push_value((a > b).into());
                 }
                 OpCode::Less => {
                     if self.peek_typed::<f64>(0).is_err() || self.peek_typed::<f64>(1).is_err() {
@@ -478,7 +478,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     }
                     let b = self.pop_typed::<f64>();
                     let a = self.pop_typed::<f64>();
-                    self.push_value(a < b);
+                    self.push_value((a < b).into());
                 }
                 OpCode::Add => {
                     if self.peek_typed::<Pointer<ObjString>>(0).is_ok()
@@ -494,7 +494,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     }
                     let b = self.pop_typed::<f64>();
                     let a = self.pop_typed::<f64>();
-                    self.push_value(a + b);
+                    self.push_value((a + b).into());
                 }
                 OpCode::Subtract => {
                     if self.peek_typed::<f64>(0).is_err() || self.peek_typed::<f64>(1).is_err() {
@@ -503,7 +503,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     }
                     let b = self.pop_typed::<f64>();
                     let a = self.pop_typed::<f64>();
-                    self.push_value(a - b);
+                    self.push_value((a - b).into());
                 }
                 OpCode::Multiply => {
                     if self.peek_typed::<f64>(0).is_err() || self.peek_typed::<f64>(1).is_err() {
@@ -512,7 +512,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     }
                     let b = self.pop_typed::<f64>();
                     let a = self.pop_typed::<f64>();
-                    self.push_value(a * b);
+                    self.push_value((a * b).into());
                 }
                 OpCode::Divide => {
                     if self.peek_typed::<f64>(0).is_err() || self.peek_typed::<f64>(1).is_err() {
@@ -521,11 +521,11 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     }
                     let b = self.pop_typed::<f64>();
                     let a = self.pop_typed::<f64>();
-                    self.push_value(a / b);
+                    self.push_value((a / b).into());
                 }
                 OpCode::Not => {
                     let value = self.pop_value();
-                    self.push_value(value.is_falsey());
+                    self.push_value(value.is_falsey().into());
                 }
                 OpCode::Negate => {
                     if self.peek_typed::<f64>(0).is_err() {
@@ -533,7 +533,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                         return Err(Error::Runtime);
                     }
                     let value = self.pop_typed::<f64>();
-                    self.push_value(-value);
+                    self.push_value((-value).into());
                 }
                 OpCode::Print => {
                     let value = self.pop_value();
@@ -614,7 +614,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     let upvalue_count = function.upvalue_count;
                     let function = self.store.insert_function(*function.clone());
                     let closure = self.new_closure(function);
-                    self.push_value(closure.clone());
+                    self.push_value(closure.clone().into());
                     for _ in 0..upvalue_count {
                         let is_local = self.read_byte() != 0;
                         let index = self.read_byte() as usize;
@@ -630,7 +630,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     }
                 }
                 OpCode::CloseUpvalue => {
-                    self.close_upvalues(self.store.value_stack_top - 1);
+                    let stack_top = self.store.value_stack.len() - 1;
+                    self.close_upvalues(stack_top);
                     self.pop_value();
                 }
                 OpCode::Return => {
@@ -641,7 +642,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     if self.store.frame_stack_top == 0 {
                         return Ok(());
                     }
-                    self.store.value_stack_top = start_index;
+                    self.store.value_stack.truncate(start_index);
                     self.push_value(result);
                 }
                 OpCode::Class => {
@@ -649,7 +650,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                         panic!("IVME: Unexpected constant value.")
                     };
                     let class = self.new_class(name);
-                    self.push_value(class);
+                    self.push_value(class.into());
                 }
                 OpCode::Inherit => {
                     let Ok(superclass) = self.peek_typed::<Pointer<ObjClass>>(1) else {
@@ -709,13 +710,12 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
             chunk: function.borrow().chunk.clone(),
             ip: 0,
             slots: arg_count,
-            start_stack_index: self.store.value_stack_top - 1 - arg_count,
+            start_stack_index: self.store.value_stack.len() - 1 - arg_count,
         };
         self.store.frame_stack_top += 1;
         Ok(())
     }
 
-    #[inline]
     fn new_class(&mut self, name: &ObjString) -> Pointer<ObjClass> {
         let name_ref = self.store.insert_string(name.clone());
         let class = ObjClass {
@@ -725,7 +725,6 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         self.store.insert_class(class)
     }
 
-    #[inline]
     fn new_closure(&mut self, function: Pointer<ObjFunction>) -> Pointer<ObjClosure> {
         let function_ref = function.borrow();
         let upvalues = Vec::with_capacity(function_ref.upvalue_count);
@@ -736,7 +735,6 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         self.store.insert_closure(closure)
     }
 
-    #[inline]
     fn new_instance(&mut self, class: Pointer<ObjClass>) -> Pointer<ObjInstance> {
         let instance = ObjInstance {
             class,
@@ -745,7 +743,6 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         self.store.insert_instance(instance)
     }
 
-    #[inline]
     fn new_bound_method(
         &mut self,
         receiver: RuntimeValue,
@@ -755,36 +752,31 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         self.store.insert_bound_method(bound_method)
     }
 
-    #[inline]
     fn new_native(&mut self, function: NativeFn) -> Pointer<ObjNative> {
         self.store.insert_native(ObjNative { function })
     }
 
-    #[inline]
-    fn push_value(&mut self, value: impl Into<RuntimeValue>) {
-        self.store.value_stack[self.store.value_stack_top] = value.into();
-        self.store.value_stack_top += 1;
+    fn push_value(&mut self, value: RuntimeValue) {
+        self.store.value_stack.push(value);
     }
 
-    #[inline]
     fn pop_frame(&mut self) -> CallFrame {
         self.store.frame_stack_top -= 1;
         self.store.frame_stack[self.store.frame_stack_top].clone()
     }
 
-    #[inline]
     fn pop_value(&mut self) -> RuntimeValue {
-        self.store.value_stack_top -= 1;
-        self.store.value_stack[self.store.value_stack_top].clone()
+        self.store
+            .value_stack
+            .pop()
+            .expect("IVME: Failed to pop value")
     }
 
-    #[inline]
     fn peek_value(&mut self, distance: usize) -> &mut RuntimeValue {
-        let index = self.store.value_stack_top - 1 - distance;
+        let index = self.store.value_stack.len() - distance - 1;
         &mut self.store.value_stack[index]
     }
 
-    #[inline]
     fn peek_typed<T: TryFrom<RuntimeValue, Error = Error>>(
         &mut self,
         distance: usize,
@@ -792,7 +784,6 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         self.peek_value(distance).clone().try_into()
     }
 
-    #[inline]
     fn pop_typed<T: TryFrom<RuntimeValue, Error = Error>>(&mut self) -> T {
         self.pop_value()
             .try_into()
