@@ -1,4 +1,7 @@
-use std::fmt::{Display, Error};
+use std::{
+    fmt::{Display, Error},
+    rc::Rc,
+};
 
 use crate::value::constant::ConstantValue;
 
@@ -6,7 +9,7 @@ use crate::value::constant::ConstantValue;
 pub struct Chunk {
     pub code: Vec<u8>,
     pub lines: Vec<usize>,
-    pub constants: Vec<ConstantValue>,
+    pub constants: Vec<Rc<ConstantValue>>,
 }
 
 impl Chunk {
@@ -16,7 +19,7 @@ impl Chunk {
     }
 
     pub fn add_constant(&mut self, value: ConstantValue) -> usize {
-        self.constants.push(value);
+        self.constants.push(Rc::new(value));
         self.constants.len() - 1
     }
 
@@ -144,7 +147,7 @@ impl Display for Chunk {
                     offset += 1;
                     write!(f, "{:<16}\t{:4}\t", o, constant)?;
                     writeln!(f, "{}", self.constants[constant])?;
-                    let function = match &self.constants[constant] {
+                    let function = match &*self.constants[constant] {
                         ConstantValue::Function(fun) => fun,
                         _ => panic!("Failed to get function from closure."),
                     };

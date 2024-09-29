@@ -160,28 +160,17 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         Ok((byte_1 as u16) << 8 | (byte_2 as u16))
     }
 
-    fn read_constant(&mut self) -> Result<ConstantValue, Error> {
+    fn read_constant(&mut self) -> Result<Rc<ConstantValue>, Error> {
         let closure = self.current_closure();
         let index = self.read_byte()?;
         let constant = closure.borrow().function.borrow().chunk.constants[index as usize].clone();
         Ok(constant)
     }
 
-    fn read_string(&mut self) -> Result<ObjString, Error> {
-        let string = match self.read_constant()? {
-            ConstantValue::String(s) => s,
-            v => {
-                eprintln!("IVME: Unexpected value: {v}");
-                return Err(Error::Runtime);
-            }
-        };
-        Ok(string)
-    }
-
-    fn bind_method(&mut self, class: Pointer<ObjClass>, name: ObjString) -> Result<(), Error> {
+    fn bind_method(&mut self, class: Pointer<ObjClass>, name: &ObjString) -> Result<(), Error> {
         let class = class.borrow();
-        let Some(method) = class.methods.get(&name) else {
-            self.runtime_error(format!("Undefined property '{}'", &name.chars));
+        let Some(method) = class.methods.get(name) else {
+            self.runtime_error(format!("Undefined property '{}'", name.chars));
             return Err(Error::Runtime);
         };
 
@@ -228,10 +217,10 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         Ok(())
     }
 
-    fn define_method(&mut self, name: ObjString) -> Result<(), Error> {
+    fn define_method(&mut self, name: &ObjString) -> Result<(), Error> {
         let method = self.peek_typed::<Pointer<ObjClosure>>(0)?;
         let class = self.peek_typed::<Pointer<ObjClass>>(1)?;
-        class.borrow_mut().methods.insert(name, method);
+        class.borrow_mut().methods.insert(name.clone(), method);
         self.pop_value()?;
         Ok(())
     }
@@ -247,10 +236,10 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         Ok(())
     }
 
-    fn invoke(&mut self, method_name: ObjString, arg_count: usize) -> Result<(), Error> {
+    fn invoke(&mut self, method_name: &ObjString, arg_count: usize) -> Result<(), Error> {
         let receiver = self.peek_typed::<Pointer<ObjInstance>>(arg_count)?;
         let instance_fields = &receiver.borrow().fields;
-        if let Some(value) = instance_fields.get(&method_name) {
+        if let Some(value) = instance_fields.get(method_name) {
             self.store.value_stack[self.store.value_stack_top - arg_count - 1] = value.clone();
             return self.call_value(value.clone(), arg_count);
         }
@@ -261,11 +250,11 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     fn invoke_from_class(
         &mut self,
         class: Pointer<ObjClass>,
-        method_name: ObjString,
+        method_name: &ObjString,
         arg_count: usize,
     ) -> Result<(), Error> {
         let class = class.borrow();
-        let Some(method) = class.methods.get(&method_name) else {
+        let Some(method) = class.methods.get(method_name) else {
             self.runtime_error(format!("Undefined property '{method_name}'.\n"));
             return Err(Error::Runtime);
         };
@@ -330,15 +319,15 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
             }
             match instruction {
                 OpCode::Constant => {
-                    let constant = self.read_constant()?;
+                    let constant = &*self.read_constant()?;
                     let runtime_value = match constant {
-                        ConstantValue::Number(n) => RuntimeValue::Number(n),
+                        ConstantValue::Number(n) => RuntimeValue::Number(*n),
                         ConstantValue::String(s) => {
-                            let obj_string = s;
+                            let obj_string = s.clone();
                             self.store.insert_string(obj_string).into()
                         }
                         ConstantValue::Function(f) => {
-                            let obj_function = *f;
+                            let obj_function = *f.clone();
                             self.store.insert_function(obj_function).into()
                         }
                     };
@@ -365,8 +354,10 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     *self.peek_value(slot_distance)? = value;
                 }
                 OpCode::GetGlobal => {
-                    let name = self.read_string()?;
-                    let value = match self.store.globals.get(&name) {
+                    let ConstantValue::String(name) = &*self.read_constant()? else {
+                        panic!("IVME: Unexpected constant value.")
+                    };
+                    let value = match self.store.globals.get(name) {
                         Some(v) => v.clone(),
                         None => {
                             self.runtime_error(format!("Undefined variable '{name}'.\n"));
@@ -376,7 +367,9 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     self.push_value(value);
                 }
                 OpCode::SetGlobal => {
-                    let name = self.read_string()?;
+                    let ConstantValue::String(name) = &*self.read_constant()? else {
+                        panic!("IVME: Unexpected constant value.")
+                    };
                     let value = self.peek_value(0)?.clone();
                     if self.store.globals.insert(name.clone(), value) {
                         self.store.globals.remove(&name);
@@ -385,9 +378,11 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     }
                 }
                 OpCode::DefineGlobal => {
-                    let name = self.read_string()?;
+                    let ConstantValue::String(name) = &*self.read_constant()? else {
+                        panic!("IVME: Unexpected constant value.")
+                    };
                     let value = self.pop_value()?.clone();
-                    self.store.globals.insert(name, value);
+                    self.store.globals.insert(name.clone(), value);
                 }
                 OpCode::GetUpvalue => {
                     let slot = self.read_byte()? as usize;
@@ -416,7 +411,9 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     closure.upvalues[slot] = open_upvalue;
                 }
                 OpCode::GetProperty => {
-                    let name = self.read_string()?;
+                    let ConstantValue::String(name) = &*self.read_constant()? else {
+                        panic!("IVME: Unexpected constant value.")
+                    };
                     let instance = {
                         let Ok(instance_ref) = self.peek_typed::<Pointer<ObjInstance>>(0) else {
                             self.runtime_error("Only instances have fields.\n".into());
@@ -439,15 +436,19 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                         self.runtime_error("Only instances have fields.\n".into());
                         return Err(Error::Runtime);
                     };
-                    let name = self.read_string()?;
+                    let ConstantValue::String(name) = &*self.read_constant()? else {
+                        panic!("IVME: Unexpected constant value.")
+                    };
                     let value = self.peek_value(0)?.clone();
-                    instance.borrow_mut().fields.insert(name, value);
+                    instance.borrow_mut().fields.insert(name.clone(), value);
                     let value = self.pop_value()?;
                     self.pop_value()?; // Instance
                     self.push_value(value);
                 }
                 OpCode::GetSuper => {
-                    let name = self.read_string()?;
+                    let ConstantValue::String(name) = &*self.read_constant()? else {
+                        panic!("IVME: Unexpected constant value.")
+                    };
                     let superclass = match self.pop_value()? {
                         RuntimeValue::Class(o) => o,
                         _ => return Err(Error::Runtime),
@@ -589,22 +590,26 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     self.call_value(callee, arg_count)?;
                 }
                 OpCode::Invoke => {
-                    let method_name = self.read_string()?;
+                    let ConstantValue::String(method_name) = &*self.read_constant()? else {
+                        panic!("IVME: Unexpected constant value.")
+                    };
                     let arg_count = self.read_byte()? as usize;
                     self.invoke(method_name, arg_count)?;
                 }
                 OpCode::SuperInvoke => {
-                    let method_name = self.read_string()?;
+                    let ConstantValue::String(method_name) = &*self.read_constant()? else {
+                        panic!("IVME: Unexpected constant value.")
+                    };
                     let arg_count = self.read_byte()? as usize;
                     let class = self.pop_typed::<Pointer<ObjClass>>()?;
                     self.invoke_from_class(class, method_name, arg_count)?;
                 }
                 OpCode::Closure => {
-                    let ConstantValue::Function(function) = self.read_constant()? else {
+                    let ConstantValue::Function(function) = &*self.read_constant()?.clone() else {
                         return Err(Error::Runtime);
                     };
                     let upvalue_count = function.upvalue_count;
-                    let function = self.store.insert_function(*function);
+                    let function = self.store.insert_function(*function.clone());
                     let closure = self.new_closure(function);
                     self.push_value(closure.clone());
                     let current_closure = self.current_closure();
@@ -637,7 +642,9 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     self.push_value(result);
                 }
                 OpCode::Class => {
-                    let name = self.read_string()?;
+                    let ConstantValue::String(name) = &*self.read_constant()? else {
+                        panic!("IVME: Unexpected constant value.")
+                    };
                     let class = self.new_class(name);
                     self.push_value(class);
                 }
@@ -668,7 +675,9 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     self.pop_value()?; // Subclass
                 }
                 OpCode::Method => {
-                    let name = self.read_string()?;
+                    let ConstantValue::String(name) = &*self.read_constant()? else {
+                        panic!("IVME: Unexpected constant value.")
+                    };
                     self.define_method(name)?;
                 }
                 OpCode::Unknown => return Err(Error::Runtime),
@@ -703,8 +712,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     }
 
     #[inline]
-    fn new_class(&mut self, name: ObjString) -> Pointer<ObjClass> {
-        let name_ref = self.store.insert_string(name);
+    fn new_class(&mut self, name: &ObjString) -> Pointer<ObjClass> {
+        let name_ref = self.store.insert_string(name.clone());
         let class = ObjClass {
             name: name_ref,
             methods: Table::default(),

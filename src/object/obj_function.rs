@@ -1,4 +1,4 @@
-use crate::chunk::Chunk;
+use crate::{chunk::Chunk, value::ConstantValue};
 use std::fmt::Display;
 
 use super::HeapSize;
@@ -20,10 +20,10 @@ impl HeapSize for ObjFunction {
                 .chunk
                 .constants
                 .iter()
-                .map(|x| match x {
-                    crate::value::ConstantValue::Number(_) => size_of::<f64>(),
-                    crate::value::ConstantValue::String(s) => s.chars.len(),
-                    crate::value::ConstantValue::Function(obj_function) => obj_function.size(),
+                .map(|x| match &**x {
+                    ConstantValue::Number(_) => size_of::<f64>(),
+                    ConstantValue::String(s) => s.chars.len(),
+                    ConstantValue::Function(obj_function) => obj_function.size(),
                 })
                 .sum::<usize>()
     }

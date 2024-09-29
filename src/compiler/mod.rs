@@ -1081,6 +1081,8 @@ impl Compiler {
 
 #[cfg(test)]
 mod test {
+    use std::rc::Rc;
+
     use super::*;
 
     #[test]
@@ -1137,7 +1139,7 @@ mod test {
         let function = compiler.compile().unwrap();
         let chunk = function.chunk;
         let empty_function_value = &chunk.constants[1];
-        let ConstantValue::Function(f) = empty_function_value else {
+        let ConstantValue::Function(f) = &**empty_function_value else {
             panic!("Failed to get function from chunk.");
         };
         let empty_function_chunk = &f.chunk;
@@ -1204,7 +1206,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), expected_constants.len());
         for (constant, expected_constant) in chunk.constants.iter().zip(expected_constants.iter()) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(&**constant, expected_constant);
         }
 
         assert_eq!(
@@ -1247,7 +1249,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), 1);
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(*constant, expected_constant);
         }
     }
 
@@ -1362,7 +1364,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), 1);
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(*constant, expected_constant);
         }
     }
 
@@ -1397,7 +1399,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), 1);
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(*constant, expected_constant);
         }
     }
 
@@ -1432,7 +1434,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), 2);
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(*constant, expected_constant);
         }
     }
 
@@ -1467,7 +1469,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), 2);
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(*constant, expected_constant);
         }
     }
 
@@ -1502,7 +1504,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), 2);
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(*constant, expected_constant);
         }
     }
 
@@ -1537,7 +1539,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), 2);
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(*constant, expected_constant);
         }
     }
 
@@ -1572,7 +1574,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), 2);
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(*constant, expected_constant);
         }
     }
 
@@ -1607,7 +1609,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), 2);
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(*constant, expected_constant);
         }
     }
 
@@ -1642,7 +1644,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), 2);
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(*constant, expected_constant);
         }
     }
 
@@ -1678,7 +1680,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), 2);
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(*constant, expected_constant);
         }
     }
 
@@ -1714,7 +1716,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), 2);
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(*constant, expected_constant);
         }
     }
 
@@ -1736,7 +1738,10 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 9],
-            constants: vec![1.0.into(), 2.0.into()],
+            constants: vec![1.0.into(), 2.0.into()]
+                .into_iter()
+                .map(Rc::new)
+                .collect(),
         };
         assert_eq!(chunk, expected_chunk);
     }
@@ -1894,7 +1899,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), expected_constants.len());
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(*constant, expected_constant);
         }
     }
 
@@ -1926,7 +1931,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), 1);
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(*constant, expected_constant);
         }
     }
 
@@ -1959,7 +1964,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), 2);
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(*constant, expected_constant);
         }
     }
 
@@ -1995,7 +2000,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), expected_constants.len());
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(*constant, expected_constant);
         }
     }
 
@@ -2060,7 +2065,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), expected_constants.len());
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(*constant, expected_constant);
         }
     }
 
@@ -2101,7 +2106,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), expected_constants.len());
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(*constant, expected_constant);
         }
     }
 
@@ -2143,7 +2148,7 @@ mod test {
 
         assert_eq!(chunk.constants.len(), expected_constants.len());
         for (constant, expected_constant) in chunk.constants.into_iter().zip(expected_constants) {
-            assert_eq!(constant, expected_constant);
+            assert_eq!(*constant, expected_constant);
         }
     }
 
@@ -2196,7 +2201,10 @@ mod test {
                 "foo".into(),
                 1.0.into(),
                 2.0.into(),
-            ],
+            ]
+            .into_iter()
+            .map(Rc::new)
+            .collect(),
         };
         println!(
             "{}",
@@ -2250,7 +2258,10 @@ mod test {
                 chunk: expected_bar_chunk,
                 name: Some("bar".into()),
             }
-            .into()],
+            .into()]
+            .into_iter()
+            .map(Rc::new)
+            .collect(),
         };
         let expected_chunk = Chunk {
             code: vec![
@@ -2283,13 +2294,16 @@ mod test {
                 "foo".into(),
                 1.0.into(),
                 2.0.into(),
-            ],
+            ]
+            .into_iter()
+            .map(Rc::new)
+            .collect(),
         };
-        let ConstantValue::Function(foo) = &chunk.constants[1] else {
+        let ConstantValue::Function(foo) = &*chunk.constants[1] else {
             panic!("Failed to read foo chunk.");
         };
 
-        let ConstantValue::Function(bar) = &foo.chunk.constants[0] else {
+        let ConstantValue::Function(bar) = &*foo.chunk.constants[0] else {
             panic!("Failed to read bar chunk.");
         };
         println!("{}", bar.chunk);
@@ -2353,7 +2367,10 @@ mod test {
                 "a".into(),
                 "a".into(),
                 1.0.into(),
-            ],
+            ]
+            .into_iter()
+            .map(Rc::new)
+            .collect(),
         };
         assert_eq!(chunk, expected_chunk);
     }
@@ -2402,7 +2419,10 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 35],
-            constants: vec![0.0.into(), 5.0.into(), 1.0.into(), "for loop".into()],
+            constants: vec![0.0.into(), 5.0.into(), 1.0.into(), "for loop".into()]
+                .into_iter()
+                .map(Rc::new)
+                .collect(),
         };
         assert_eq!(chunk, expected_chunk);
     }
@@ -2455,7 +2475,10 @@ mod test {
                 "a".into(),
                 "a".into(),
                 1.0.into(),
-            ],
+            ]
+            .into_iter()
+            .map(Rc::new)
+            .collect(),
         };
         assert_eq!(chunk, expected_chunk);
     }
@@ -2478,7 +2501,10 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 9],
-            constants: vec!["TestClass".into(), "TestClass".into()],
+            constants: vec!["TestClass".into(), "TestClass".into()]
+                .into_iter()
+                .map(Rc::new)
+                .collect(),
         };
         assert_eq!(chunk, expected_chunk);
     }
@@ -2522,7 +2548,10 @@ mod test {
                     name: Some("init".into()),
                 }
                 .into(),
-            ],
+            ]
+            .into_iter()
+            .map(Rc::new)
+            .collect(),
         };
         assert_eq!(chunk, expected_chunk);
     }
@@ -2559,7 +2588,10 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 22],
-            constants: vec!["a".into(), 1.0.into(), "b".into(), "a".into(), 2.0.into()],
+            constants: vec!["a".into(), 1.0.into(), "b".into(), "a".into(), 2.0.into()]
+                .into_iter()
+                .map(Rc::new)
+                .collect(),
         };
         let expected_chunk = Chunk {
             code: vec![
@@ -2589,9 +2621,12 @@ mod test {
                     name: Some("init".into()),
                 }
                 .into(),
-            ],
+            ]
+            .into_iter()
+            .map(Rc::new)
+            .collect(),
         };
-        let ConstantValue::Function(init) = &chunk.constants[3] else {
+        let ConstantValue::Function(init) = &*chunk.constants[3] else {
             panic!("Failed to get init chunk");
         };
         println!("{}", init.chunk);
@@ -2637,7 +2672,10 @@ mod test {
                     },
                 }
                 .into(),
-            ],
+            ]
+            .into_iter()
+            .map(Rc::new)
+            .collect(),
         };
         assert_eq!(chunk, expected_chunk);
     }
@@ -2661,7 +2699,7 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 10],
-            constants: vec!["a".into()],
+            constants: vec!["a".into()].into_iter().map(Rc::new).collect(),
         };
         let expected_m_chunk = Chunk {
             code: vec![
@@ -2674,7 +2712,7 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 7],
-            constants: vec!["a".into()],
+            constants: vec!["a".into()].into_iter().map(Rc::new).collect(),
         };
         let expected_chunk = Chunk {
             code: vec![
@@ -2732,7 +2770,10 @@ mod test {
                 "TestClass".into(),
                 "c".into(),
                 "m".into(),
-            ],
+            ]
+            .into_iter()
+            .map(Rc::new)
+            .collect(),
         };
         assert_eq!(chunk, expected_chunk);
     }
@@ -2775,7 +2816,10 @@ mod test {
                 "Parent".into(),
                 "Child".into(),
                 "Child".into(),
-            ],
+            ]
+            .into_iter()
+            .map(Rc::new)
+            .collect(),
         };
         assert_eq!(chunk, expected_chunk);
     }
@@ -2797,7 +2841,7 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 5],
-            constants: vec![1.0.into()],
+            constants: vec![1.0.into()].into_iter().map(Rc::new).collect(),
         };
 
         let expected_init_chunk = Chunk {
@@ -2814,7 +2858,10 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 10],
-            constants: vec!["a".into(), 2.0.into()],
+            constants: vec!["a".into(), 2.0.into()]
+                .into_iter()
+                .map(Rc::new)
+                .collect(),
         };
 
         let expected_m_chunk = Chunk {
@@ -2836,7 +2883,10 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 15],
-            constants: vec!["m".into(), "a".into()],
+            constants: vec!["m".into(), "a".into()]
+                .into_iter()
+                .map(Rc::new)
+                .collect(),
         };
 
         let expected_chunk = Chunk {
@@ -2910,7 +2960,10 @@ mod test {
                     name: Some("m".into()),
                 }
                 .into(),
-            ],
+            ]
+            .into_iter()
+            .map(Rc::new)
+            .collect(),
         };
         assert_eq!(chunk, expected_chunk);
     }
@@ -2936,7 +2989,7 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 11],
-            constants: vec!["a".into()],
+            constants: vec!["a".into()].into_iter().map(Rc::new).collect(),
         };
 
         let expected_bar_chunk = Chunk {
@@ -2969,7 +3022,10 @@ mod test {
                     name: Some("baz".into()),
                 }
                 .into(),
-            ],
+            ]
+            .into_iter()
+            .map(Rc::new)
+            .collect(),
         };
 
         let expected_foo_chunk = Chunk {
@@ -3000,7 +3056,10 @@ mod test {
                     name: Some("bar".into()),
                 }
                 .into(),
-            ],
+            ]
+            .into_iter()
+            .map(Rc::new)
+            .collect(),
         };
 
         let expected_chunk = Chunk {
@@ -3034,7 +3093,10 @@ mod test {
                 }
                 .into(),
                 "foo".into(),
-            ],
+            ]
+            .into_iter()
+            .map(Rc::new)
+            .collect(),
         };
         assert_eq!(chunk, expected_chunk);
     }

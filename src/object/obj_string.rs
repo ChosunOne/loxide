@@ -2,7 +2,7 @@ use std::{fmt::Display, hash::Hash};
 
 use super::HeapSize;
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct ObjString {
     pub chars: String,
     pub hash: u32,
@@ -11,6 +11,14 @@ pub struct ObjString {
 impl Hash for ObjString {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         state.write_u32(self.hash);
+    }
+}
+
+impl PartialEq for ObjString {
+    fn eq(&self, other: &Self) -> bool {
+        self.chars.len() == other.chars.len()
+            && self.hash == other.hash
+            && self.chars.eq(&other.chars)
     }
 }
 
