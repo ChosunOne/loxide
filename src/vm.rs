@@ -69,11 +69,11 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         let function_ref = self.store.insert_function_pointer(function);
         self.push_value(function_ref.clone());
         let closure = self.new_closure(function_ref);
-        self.pop_value()?;
+        self.pop_value();
         self.push_value(closure.clone());
         self.call(closure, 0)?;
         self.run()?;
-        self.pop_value()?;
+        self.pop_value();
         Ok(())
     }
 
@@ -146,25 +146,25 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
             .expect("IVME: Failed to get currently executing closure.")
     }
 
-    fn read_byte(&mut self) -> Result<u8, Error> {
+    fn read_byte(&mut self) -> u8 {
         let closure = self.current_closure();
         let ip = self.current_frame().ip;
         let code = closure.borrow().function.borrow().chunk.code[ip];
         self.current_frame_mut().ip += 1;
-        Ok(code)
+        code
     }
 
-    fn read_short(&mut self) -> Result<u16, Error> {
-        let byte_1 = self.read_byte()?;
-        let byte_2 = self.read_byte()?;
-        Ok((byte_1 as u16) << 8 | (byte_2 as u16))
+    fn read_short(&mut self) -> u16 {
+        let byte_1 = self.read_byte();
+        let byte_2 = self.read_byte();
+        (byte_1 as u16) << 8 | (byte_2 as u16)
     }
 
-    fn read_constant(&mut self) -> Result<Rc<ConstantValue>, Error> {
+    fn read_constant(&mut self) -> Rc<ConstantValue> {
         let closure = self.current_closure();
-        let index = self.read_byte()?;
+        let index = self.read_byte();
         let constant = closure.borrow().function.borrow().chunk.constants[index as usize].clone();
-        Ok(constant)
+        constant
     }
 
     fn bind_method(&mut self, class: Pointer<ObjClass>, name: &ObjString) -> Result<(), Error> {
@@ -174,9 +174,9 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
             return Err(Error::Runtime);
         };
 
-        let receiver = self.peek_value(0)?.clone();
+        let receiver = self.peek_value(0).clone();
         let bound = self.new_bound_method(receiver, method.clone());
-        self.pop_value()?;
+        self.pop_value();
         self.push_value(bound);
         Ok(())
     }
@@ -221,7 +221,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         let method = self.peek_typed::<Pointer<ObjClosure>>(0)?;
         let class = self.peek_typed::<Pointer<ObjClass>>(1)?;
         class.borrow_mut().methods.insert(name.clone(), method);
-        self.pop_value()?;
+        self.pop_value();
         Ok(())
     }
 
@@ -230,14 +230,16 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         let a = self.peek_typed::<Pointer<ObjString>>(1)?;
         let result = a.borrow().chars.clone() + &b.borrow().chars;
         let new_string = self.store.insert_string(result.into());
-        self.pop_value()?;
-        self.pop_value()?;
+        self.pop_value();
+        self.pop_value();
         self.push_value(new_string);
         Ok(())
     }
 
     fn invoke(&mut self, method_name: &ObjString, arg_count: usize) -> Result<(), Error> {
-        let receiver = self.peek_typed::<Pointer<ObjInstance>>(arg_count)?;
+        let receiver = self
+            .peek_typed::<Pointer<ObjInstance>>(arg_count)
+            .expect("IVME: Failed to get instance.");
         let instance_fields = &receiver.borrow().fields;
         if let Some(value) = instance_fields.get(method_name) {
             self.store.value_stack[self.store.value_stack_top - arg_count - 1] = value.clone();
@@ -264,13 +266,13 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     fn call_value(&mut self, callee: RuntimeValue, arg_count: usize) -> Result<(), Error> {
         match callee {
             RuntimeValue::BoundMethod(bm) => {
-                *self.peek_value(arg_count)? = bm.borrow().receiver.clone();
+                *self.peek_value(arg_count) = bm.borrow().receiver.clone();
                 let method = bm.borrow().method.clone();
                 self.call(method, arg_count)
             }
             RuntimeValue::Class(class) => {
                 let instance = self.new_instance(class.clone());
-                *self.peek_value(arg_count)? = instance.into();
+                *self.peek_value(arg_count) = instance.into();
                 let class = class.borrow();
                 if let Some(initializer) = class.methods.get(&self.init_string) {
                     self.call(initializer.clone(), arg_count)?;
@@ -307,7 +309,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
 
     fn run(&mut self) -> Result<(), Error> {
         loop {
-            let instruction = OpCode::from(self.read_byte()?);
+            let instruction = OpCode::from(self.read_byte());
             #[cfg(feature = "debug")]
             {
                 println!();
@@ -319,7 +321,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
             }
             match instruction {
                 OpCode::Constant => {
-                    let constant = &*self.read_constant()?;
+                    let constant = &*self.read_constant();
                     let runtime_value = match constant {
                         ConstantValue::Number(n) => RuntimeValue::Number(*n),
                         ConstantValue::String(s) => {
@@ -338,23 +340,23 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 OpCode::True => self.push_value(RuntimeValue::Bool(true)),
                 OpCode::False => self.push_value(RuntimeValue::Bool(false)),
                 OpCode::Pop => {
-                    self.pop_value()?;
+                    self.pop_value();
                 }
                 OpCode::GetLocal => {
-                    let slot = self.read_byte()? as usize;
+                    let slot = self.read_byte() as usize;
                     let slot_distance = self.frame_slot_to_peek_distance(slot);
 
-                    let value = self.peek_value(slot_distance)?.clone();
+                    let value = self.peek_value(slot_distance).clone();
                     self.push_value(value);
                 }
                 OpCode::SetLocal => {
-                    let slot = self.read_byte()? as usize;
+                    let slot = self.read_byte() as usize;
                     let slot_distance = self.frame_slot_to_peek_distance(slot);
-                    let value = self.peek_value(0)?.clone();
-                    *self.peek_value(slot_distance)? = value;
+                    let value = self.peek_value(0).clone();
+                    *self.peek_value(slot_distance) = value;
                 }
                 OpCode::GetGlobal => {
-                    let ConstantValue::String(name) = &*self.read_constant()? else {
+                    let ConstantValue::String(name) = &*self.read_constant() else {
                         panic!("IVME: Unexpected constant value.")
                     };
                     let value = match self.store.globals.get(name) {
@@ -367,25 +369,25 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     self.push_value(value);
                 }
                 OpCode::SetGlobal => {
-                    let ConstantValue::String(name) = &*self.read_constant()? else {
+                    let ConstantValue::String(name) = &*self.read_constant() else {
                         panic!("IVME: Unexpected constant value.")
                     };
-                    let value = self.peek_value(0)?.clone();
+                    let value = self.peek_value(0).clone();
                     if self.store.globals.insert(name.clone(), value) {
-                        self.store.globals.remove(&name);
+                        self.store.globals.remove(name);
                         self.runtime_error(format!("Undefined variable '{name}'.\n"));
                         return Err(Error::Runtime);
                     }
                 }
                 OpCode::DefineGlobal => {
-                    let ConstantValue::String(name) = &*self.read_constant()? else {
+                    let ConstantValue::String(name) = &*self.read_constant() else {
                         panic!("IVME: Unexpected constant value.")
                     };
-                    let value = self.pop_value()?.clone();
+                    let value = self.pop_value().clone();
                     self.store.globals.insert(name.clone(), value);
                 }
                 OpCode::GetUpvalue => {
-                    let slot = self.read_byte()? as usize;
+                    let slot = self.read_byte() as usize;
                     let location = {
                         let closure = self.current_closure();
                         let upvalue = closure.borrow().upvalues[slot].clone();
@@ -402,7 +404,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     self.push_value(value);
                 }
                 OpCode::SetUpvalue => {
-                    let slot = self.read_byte()? as usize;
+                    let slot = self.read_byte() as usize;
                     let closure = self.current_closure();
                     let open_upvalue = self.store.insert_upvalue(ObjUpvalue::Open {
                         location: self.store.value_stack_top - 1,
@@ -411,7 +413,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     closure.upvalues[slot] = open_upvalue;
                 }
                 OpCode::GetProperty => {
-                    let ConstantValue::String(name) = &*self.read_constant()? else {
+                    let ConstantValue::String(name) = &*self.read_constant() else {
                         panic!("IVME: Unexpected constant value.")
                     };
                     let instance = {
@@ -422,8 +424,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                         instance_ref
                     };
                     let instance = instance.borrow();
-                    if let Some(v) = instance.fields.get(&name) {
-                        self.pop_value()?; // Instance
+                    if let Some(v) = instance.fields.get(name) {
+                        self.pop_value(); // Instance
                         self.push_value(v.clone());
                         continue;
                     }
@@ -436,28 +438,31 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                         self.runtime_error("Only instances have fields.\n".into());
                         return Err(Error::Runtime);
                     };
-                    let ConstantValue::String(name) = &*self.read_constant()? else {
+                    let ConstantValue::String(name) = &*self.read_constant() else {
                         panic!("IVME: Unexpected constant value.")
                     };
-                    let value = self.peek_value(0)?.clone();
-                    instance.borrow_mut().fields.insert(name.clone(), value);
-                    let value = self.pop_value()?;
-                    self.pop_value()?; // Instance
+                    let value = self.peek_value(0);
+                    instance
+                        .borrow_mut()
+                        .fields
+                        .insert(name.clone(), value.clone());
+                    let value = self.pop_value();
+                    self.pop_value(); // Instance
                     self.push_value(value);
                 }
                 OpCode::GetSuper => {
-                    let ConstantValue::String(name) = &*self.read_constant()? else {
+                    let ConstantValue::String(name) = &*self.read_constant() else {
                         panic!("IVME: Unexpected constant value.")
                     };
-                    let superclass = match self.pop_value()? {
+                    let superclass = match self.pop_value() {
                         RuntimeValue::Class(o) => o,
                         _ => return Err(Error::Runtime),
                     };
                     self.bind_method(superclass, name)?;
                 }
                 OpCode::Equal => {
-                    let a = self.pop_value()?;
-                    let b = self.pop_value()?;
+                    let a = self.pop_value();
+                    let b = self.pop_value();
                     self.push_value(a == b);
                 }
                 OpCode::Greater => {
@@ -465,8 +470,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                         self.runtime_error("Operands must be numbers.\n".into());
                         return Err(Error::Runtime);
                     }
-                    let b = self.pop_typed::<f64>()?;
-                    let a = self.pop_typed::<f64>()?;
+                    let b = self.pop_typed::<f64>();
+                    let a = self.pop_typed::<f64>();
                     self.push_value(a > b);
                 }
                 OpCode::Less => {
@@ -474,8 +479,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                         self.runtime_error("Operands must be numbers.\n".into());
                         return Err(Error::Runtime);
                     }
-                    let b = self.pop_typed::<f64>()?;
-                    let a = self.pop_typed::<f64>()?;
+                    let b = self.pop_typed::<f64>();
+                    let a = self.pop_typed::<f64>();
                     self.push_value(a < b);
                 }
                 OpCode::Add => {
@@ -490,8 +495,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                         self.runtime_error("Operands must be two numbers or two strings.\n".into());
                         return Err(Error::Runtime);
                     }
-                    let b = self.pop_typed::<f64>()?;
-                    let a = self.pop_typed::<f64>()?;
+                    let b = self.pop_typed::<f64>();
+                    let a = self.pop_typed::<f64>();
                     self.push_value(a + b);
                 }
                 OpCode::Subtract => {
@@ -499,8 +504,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                         self.runtime_error("Operands must be numbers.\n".into());
                         return Err(Error::Runtime);
                     }
-                    let b = self.pop_typed::<f64>()?;
-                    let a = self.pop_typed::<f64>()?;
+                    let b = self.pop_typed::<f64>();
+                    let a = self.pop_typed::<f64>();
                     self.push_value(a - b);
                 }
                 OpCode::Multiply => {
@@ -508,8 +513,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                         self.runtime_error("Operands must be numbers.\n".into());
                         return Err(Error::Runtime);
                     }
-                    let b = self.pop_typed::<f64>()?;
-                    let a = self.pop_typed::<f64>()?;
+                    let b = self.pop_typed::<f64>();
+                    let a = self.pop_typed::<f64>();
                     self.push_value(a * b);
                 }
                 OpCode::Divide => {
@@ -517,23 +522,24 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                         self.runtime_error("Operands must be numbers.\n".into());
                         return Err(Error::Runtime);
                     }
-                    let b = self.pop_typed::<f64>()?;
-                    let a = self.pop_typed::<f64>()?;
+                    let b = self.pop_typed::<f64>();
+                    let a = self.pop_typed::<f64>();
                     self.push_value(a / b);
                 }
                 OpCode::Not => {
-                    let value = self.pop_value()?;
+                    let value = self.pop_value();
                     self.push_value(value.is_falsey());
                 }
                 OpCode::Negate => {
-                    let Ok(value) = self.pop_typed::<f64>() else {
+                    if self.peek_typed::<f64>(0).is_err() {
                         self.runtime_error("Operand must be a number.\n".into());
                         return Err(Error::Runtime);
-                    };
+                    }
+                    let value = self.pop_typed::<f64>();
                     self.push_value(-value);
                 }
                 OpCode::Print => {
-                    let value = self.pop_value()?;
+                    let value = self.pop_value();
                     match value {
                         RuntimeValue::Bool(b) => self.println(format!("{b}"))?,
                         RuntimeValue::Number(n) => {
@@ -571,41 +577,41 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     }
                 }
                 OpCode::Jump => {
-                    let offset = self.read_short()? as usize;
+                    let offset = self.read_short() as usize;
                     self.current_frame_mut().ip += offset;
                 }
                 OpCode::JumpIfFalse => {
-                    let offset = self.read_short()? as usize;
-                    if self.peek_value(0)?.is_falsey() {
+                    let offset = self.read_short() as usize;
+                    if self.peek_value(0).is_falsey() {
                         self.current_frame_mut().ip += offset;
                     }
                 }
                 OpCode::Loop => {
-                    let offset = self.read_short()? as usize;
+                    let offset = self.read_short() as usize;
                     self.current_frame_mut().ip -= offset;
                 }
                 OpCode::Call => {
-                    let arg_count = self.read_byte()? as usize;
-                    let callee = self.peek_value(arg_count)?.clone();
+                    let arg_count = self.read_byte() as usize;
+                    let callee = self.peek_value(arg_count).clone();
                     self.call_value(callee, arg_count)?;
                 }
                 OpCode::Invoke => {
-                    let ConstantValue::String(method_name) = &*self.read_constant()? else {
+                    let ConstantValue::String(method_name) = &*self.read_constant() else {
                         panic!("IVME: Unexpected constant value.")
                     };
-                    let arg_count = self.read_byte()? as usize;
+                    let arg_count = self.read_byte() as usize;
                     self.invoke(method_name, arg_count)?;
                 }
                 OpCode::SuperInvoke => {
-                    let ConstantValue::String(method_name) = &*self.read_constant()? else {
+                    let ConstantValue::String(method_name) = &*self.read_constant() else {
                         panic!("IVME: Unexpected constant value.")
                     };
-                    let arg_count = self.read_byte()? as usize;
-                    let class = self.pop_typed::<Pointer<ObjClass>>()?;
+                    let arg_count = self.read_byte() as usize;
+                    let class = self.pop_typed::<Pointer<ObjClass>>();
                     self.invoke_from_class(class, method_name, arg_count)?;
                 }
                 OpCode::Closure => {
-                    let ConstantValue::Function(function) = &*self.read_constant()?.clone() else {
+                    let ConstantValue::Function(function) = &*self.read_constant().clone() else {
                         return Err(Error::Runtime);
                     };
                     let upvalue_count = function.upvalue_count;
@@ -614,8 +620,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     self.push_value(closure.clone());
                     let current_closure = self.current_closure();
                     for _ in 0..upvalue_count {
-                        let is_local = self.read_byte()? != 0;
-                        let index = self.read_byte()? as usize;
+                        let is_local = self.read_byte() != 0;
+                        let index = self.read_byte() as usize;
                         if is_local {
                             let upvalue = self.capture_upvalue(index)?;
                             closure.borrow_mut().upvalues.push(upvalue);
@@ -628,10 +634,10 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 }
                 OpCode::CloseUpvalue => {
                     self.close_upvalues(self.store.value_stack_top - 1)?;
-                    self.pop_value()?;
+                    self.pop_value();
                 }
                 OpCode::Return => {
-                    let result = self.pop_value()?;
+                    let result = self.pop_value();
                     let slots = self.current_frame().slots;
                     self.close_upvalues(slots)?;
                     let start_index = self.pop_frame().ok_or(Error::Runtime)?.start_stack_index;
@@ -642,7 +648,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     self.push_value(result);
                 }
                 OpCode::Class => {
-                    let ConstantValue::String(name) = &*self.read_constant()? else {
+                    let ConstantValue::String(name) = &*self.read_constant() else {
                         panic!("IVME: Unexpected constant value.")
                     };
                     let class = self.new_class(name);
@@ -672,10 +678,10 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     for (key, value) in methods {
                         subclass.borrow_mut().methods.insert(key, value);
                     }
-                    self.pop_value()?; // Subclass
+                    self.pop_value(); // Subclass
                 }
                 OpCode::Method => {
-                    let ConstantValue::String(name) = &*self.read_constant()? else {
+                    let ConstantValue::String(name) = &*self.read_constant() else {
                         panic!("IVME: Unexpected constant value.")
                     };
                     self.define_method(name)?;
@@ -775,21 +781,15 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
     }
 
     #[inline]
-    fn pop_value(&mut self) -> Result<RuntimeValue, Error> {
-        if self.store.value_stack_top == 0 {
-            return Err(Error::Runtime);
-        }
+    fn pop_value(&mut self) -> RuntimeValue {
         self.store.value_stack_top -= 1;
-        Ok(self.store.value_stack[self.store.value_stack_top].clone())
+        self.store.value_stack[self.store.value_stack_top].clone()
     }
 
     #[inline]
-    fn peek_value(&mut self, distance: usize) -> Result<&mut RuntimeValue, Error> {
-        if self.store.value_stack_top == 0 || distance > self.store.value_stack_top - 1 {
-            return Err(Error::Runtime);
-        }
+    fn peek_value(&mut self, distance: usize) -> &mut RuntimeValue {
         let index = self.store.value_stack_top - 1 - distance;
-        self.store.value_stack.get_mut(index).ok_or(Error::Runtime)
+        &mut self.store.value_stack[index]
     }
 
     #[inline]
@@ -797,12 +797,14 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         &mut self,
         distance: usize,
     ) -> Result<T, Error> {
-        (self.peek_value(distance)?.clone()).try_into()
+        self.peek_value(distance).clone().try_into()
     }
 
     #[inline]
-    fn pop_typed<T: TryFrom<RuntimeValue, Error = Error>>(&mut self) -> Result<T, Error> {
-        self.pop_value()?.try_into()
+    fn pop_typed<T: TryFrom<RuntimeValue, Error = Error>>(&mut self) -> T {
+        self.pop_value()
+            .try_into()
+            .expect("IVME: failed to convert value")
     }
 }
 
