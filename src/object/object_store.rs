@@ -1,10 +1,10 @@
 use std::{
-    cell::RefCell,
     collections::HashMap,
     fmt::{Debug, Display},
     hash::{BuildHasherDefault, Hash, Hasher},
-    ops::Deref,
-    rc::Rc,
+    ops::{Deref, DerefMut},
+    pin::Pin,
+    ptr::NonNull,
 };
 
 use crate::{error::Error, value::RuntimeValue};
@@ -28,53 +28,67 @@ impl Hasher for PointerHasher {
 }
 
 #[derive(Debug)]
-pub struct Pointer<T>(Rc<RefCell<T>>);
+pub struct Pointer<T>(NonNull<T>);
+
+impl<T> Default for Pointer<T> {
+    fn default() -> Self {
+        Self(NonNull::dangling())
+    }
+}
+
+impl<T> Clone for Pointer<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for Pointer<T> {}
 
 impl Display for Pointer<ObjBoundMethod> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.borrow())
+        write!(f, "{}", unsafe { self.0.as_ref() })
     }
 }
 
 impl Display for Pointer<ObjClass> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.borrow())
+        write!(f, "{}", unsafe { self.0.as_ref() })
     }
 }
 
 impl Display for Pointer<ObjClosure> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.borrow())
+        write!(f, "{}", unsafe { self.0.as_ref() })
     }
 }
 
 impl Display for Pointer<ObjFunction> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.borrow())
+        write!(f, "{}", unsafe { self.0.as_ref() })
     }
 }
 
 impl Display for Pointer<ObjInstance> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.borrow())
+        write!(f, "{}", unsafe { self.0.as_ref() })
     }
 }
 
 impl Display for Pointer<ObjNative> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.borrow())
+        write!(f, "{}", unsafe { self.0.as_ref() })
     }
 }
 
 impl Display for Pointer<ObjString> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.borrow())
+        write!(f, "{}", unsafe { self.0.as_ref() })
     }
 }
 
 impl Display for Pointer<ObjUpvalue> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.borrow())
+        write!(f, "{}", unsafe { self.0.as_ref() })
     }
 }
 
@@ -155,17 +169,17 @@ impl TryFrom<RuntimeValue> for Pointer<ObjString> {
     }
 }
 
-impl<T> Clone for Pointer<T> {
-    fn clone(&self) -> Self {
-        Self(Rc::clone(&self.0))
+impl<T> Deref for Pointer<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.0.as_ref() }
     }
 }
 
-impl<T> Deref for Pointer<T> {
-    type Target = RefCell<T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+impl<T> DerefMut for Pointer<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { self.0.as_mut() }
     }
 }
 
@@ -191,45 +205,37 @@ impl<T> HeapSize for Pointer<T> {
 
 #[derive(Debug)]
 pub struct ObjectStore<T> {
-    map: HashMap<Pointer<T>, Rc<RefCell<T>>, BuildHasherDefault<PointerHasher>>,
+    map: HashMap<NonNull<T>, Pin<Box<T>>, BuildHasherDefault<PointerHasher>>,
 }
 
 impl<T: Debug + HeapSize> ObjectStore<T> {
     pub fn insert(&mut self, value: T) -> Pointer<T> {
-        let object = Rc::new(RefCell::new(value));
-        let pointer = Pointer(Rc::clone(&object));
-        self.map.insert(pointer.clone(), object);
-        pointer
-    }
-
-    pub fn insert_pointer(&mut self, value: Rc<RefCell<T>>) -> Pointer<T> {
-        let pointer = Pointer(Rc::clone(&value));
-        self.map.insert(pointer.clone(), value);
-        pointer
+        let value_box = Box::pin(value);
+        let value_ptr = NonNull::from(&*value_box);
+        self.map.insert(value_ptr, value_box);
+        Pointer(value_ptr)
     }
 
     pub fn free(&mut self, key: Pointer<T>) -> usize {
-        let Some(o) = self.map.remove(&key) else {
+        let Some(o) = self.map.remove(&key.0) else {
             return 0;
         };
-        let size = o.borrow().size();
-        size
+        o.size()
     }
 
     pub fn keys(&self) -> Vec<Pointer<T>> {
-        self.map.keys().cloned().collect()
+        self.map.keys().map(|x| Pointer(*x)).collect()
     }
 
     pub fn contains_key(&self, key: &Pointer<T>) -> bool {
-        self.map.contains_key(key)
+        self.map.contains_key(&key.0)
     }
 }
 
 impl<T> Default for ObjectStore<T> {
     fn default() -> Self {
         Self {
-            map: HashMap::<Pointer<T>, Rc<RefCell<T>>, BuildHasherDefault<PointerHasher>>::default(
-            ),
+            map: HashMap::<NonNull<T>, Pin<Box<T>>, BuildHasherDefault<PointerHasher>>::default(),
         }
     }
 }
@@ -243,7 +249,7 @@ mod test {
         let mut value_store = ObjectStore::<ObjString>::default();
         let value = "test string value".into();
         let value_ref = value_store.insert(value);
-        let retrieved_value = &*value_ref.borrow().chars;
+        let retrieved_value = &value_ref.chars;
         assert_eq!(retrieved_value, "test string value");
     }
 
@@ -251,11 +257,11 @@ mod test {
     fn it_gets_a_mutable_string() {
         let mut value_store = ObjectStore::<ObjString>::default();
         let value = "test string value".into();
-        let value_ref = value_store.insert(value);
+        let mut value_ref = value_store.insert(value);
         {
-            value_ref.borrow_mut().chars += " mutated";
+            value_ref.chars += " mutated";
         }
-        let retrieved_value = value_ref.borrow().clone().chars;
+        let retrieved_value = &value_ref.chars;
         assert_eq!(retrieved_value, "test string value mutated");
     }
 
@@ -264,8 +270,8 @@ mod test {
         let mut value_store = ObjectStore::<ObjString>::default();
         let value = "test string value".into();
         let value_ref = value_store.insert(value);
-        let freed_bytes = value_store.free(value_ref.clone());
-        let retrieved_value = value_store.map.get(&value_ref);
+        let freed_bytes = value_store.free(value_ref);
+        let retrieved_value = value_store.map.get(&value_ref.0);
         assert!(retrieved_value.is_none());
         assert_eq!(
             freed_bytes,

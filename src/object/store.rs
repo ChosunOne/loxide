@@ -1,9 +1,7 @@
 use std::{
     array,
-    cell::RefCell,
     collections::{BTreeMap, HashSet},
     fmt::Debug,
-    rc::Rc,
 };
 
 use crate::{call_frame::CallFrame, table::Table, value::RuntimeValue, vm::MAX_FRAMES};
@@ -64,25 +62,10 @@ impl Store {
         self.bound_method_store.insert(bound_method)
     }
 
-    pub fn insert_bound_method_pointer(
-        &mut self,
-        function: Rc<RefCell<ObjBoundMethod>>,
-    ) -> Pointer<ObjBoundMethod> {
-        self.bytes_allocated += function.borrow().size();
-        self.collect_garbage();
-        self.bound_method_store.insert_pointer(function)
-    }
-
     pub fn insert_class(&mut self, class: ObjClass) -> Pointer<ObjClass> {
         self.bytes_allocated += class.size();
         self.collect_garbage();
         self.class_store.insert(class)
-    }
-
-    pub fn insert_class_pointer(&mut self, class: Rc<RefCell<ObjClass>>) -> Pointer<ObjClass> {
-        self.bytes_allocated += class.borrow().size();
-        self.collect_garbage();
-        self.class_store.insert_pointer(class)
     }
 
     pub fn insert_closure(&mut self, closure: ObjClosure) -> Pointer<ObjClosure> {
@@ -91,28 +74,10 @@ impl Store {
         self.closure_store.insert(closure)
     }
 
-    pub fn insert_closure_pointer(
-        &mut self,
-        closure: Rc<RefCell<ObjClosure>>,
-    ) -> Pointer<ObjClosure> {
-        self.bytes_allocated += closure.borrow().size();
-        self.collect_garbage();
-        self.closure_store.insert_pointer(closure)
-    }
-
     pub fn insert_function(&mut self, function: ObjFunction) -> Pointer<ObjFunction> {
         self.bytes_allocated += function.size();
         self.collect_garbage();
         self.function_store.insert(function)
-    }
-
-    pub fn insert_function_pointer(
-        &mut self,
-        function: Rc<RefCell<ObjFunction>>,
-    ) -> Pointer<ObjFunction> {
-        self.bytes_allocated += function.borrow().size();
-        self.collect_garbage();
-        self.function_store.insert_pointer(function)
     }
 
     pub fn insert_instance(&mut self, instance: ObjInstance) -> Pointer<ObjInstance> {
@@ -121,25 +86,10 @@ impl Store {
         self.instance_store.insert(instance)
     }
 
-    pub fn insert_instance_pointer(
-        &mut self,
-        instance: Rc<RefCell<ObjInstance>>,
-    ) -> Pointer<ObjInstance> {
-        self.bytes_allocated += instance.borrow().size();
-        self.collect_garbage();
-        self.instance_store.insert_pointer(instance)
-    }
-
     pub fn insert_native(&mut self, native: ObjNative) -> Pointer<ObjNative> {
         self.bytes_allocated += native.size();
         self.collect_garbage();
         self.native_store.insert(native)
-    }
-
-    pub fn insert_native_pointer(&mut self, native: Rc<RefCell<ObjNative>>) -> Pointer<ObjNative> {
-        self.bytes_allocated += native.borrow().size();
-        self.collect_garbage();
-        self.native_store.insert_pointer(native)
     }
 
     pub fn insert_string(&mut self, string: ObjString) -> Pointer<ObjString> {
@@ -148,26 +98,10 @@ impl Store {
         self.string_store.insert(string)
     }
 
-    pub fn insert_string_pointer(&mut self, string: Rc<RefCell<ObjString>>) -> Pointer<ObjString> {
-        self.bytes_allocated += string.borrow().size();
-        self.collect_garbage();
-        self.string_store.insert_pointer(string)
-    }
-
     pub fn insert_upvalue(&mut self, upvalue: ObjUpvalue) -> Pointer<ObjUpvalue> {
         self.bytes_allocated += upvalue.size();
         self.collect_garbage();
         self.upvalue_store.insert(upvalue)
-    }
-
-    pub fn insert_upvalue_pointer(
-        &mut self,
-        upvalue: Rc<RefCell<ObjUpvalue>>,
-    ) -> Pointer<ObjUpvalue> {
-        self.bytes_allocated += upvalue.borrow().size();
-        let pointer = self.upvalue_store.insert_pointer(upvalue);
-        self.collect_garbage();
-        pointer
     }
 
     fn collect_garbage(&mut self) {
@@ -209,21 +143,18 @@ impl Store {
         tracing_stack: &mut Vec<RuntimeValue>,
     ) {
         for value in &self.value_stack {
-            mark_value(value.clone(), reachable_objects, tracing_stack);
+            mark_value(*value, reachable_objects, tracing_stack);
         }
         for frame in &self.frame_stack[..self.frame_stack_top] {
-            let closure = frame
-                .closure
-                .clone()
-                .expect("IVME: Failed to get frame closure");
-            mark_value(closure.clone(), reachable_objects, tracing_stack);
+            let closure = frame.closure;
+            mark_value(closure, reachable_objects, tracing_stack);
         }
         for (_, upvalue) in self.open_upvalues.iter() {
-            mark_value(upvalue.clone(), reachable_objects, tracing_stack);
+            mark_value(*upvalue, reachable_objects, tracing_stack);
         }
 
         for value in self.globals.values() {
-            mark_value(value.clone(), reachable_objects, tracing_stack);
+            mark_value(*value, reachable_objects, tracing_stack);
         }
     }
 
@@ -236,36 +167,36 @@ impl Store {
         while let Some(value) = tracing_stack.pop() {
             match value {
                 RuntimeValue::BoundMethod(pointer) => {
-                    let receiver = pointer.borrow().receiver.clone();
+                    let receiver = pointer.receiver;
                     mark_value(receiver, reachable_objects, &mut tracing_stack);
-                    let method = pointer.borrow().method.clone();
+                    let method = pointer.method;
                     mark_value(method, reachable_objects, &mut tracing_stack);
                 }
                 RuntimeValue::Class(pointer) => {
-                    let name = pointer.borrow().name.clone();
+                    let name = pointer.name;
                     mark_value(name, reachable_objects, &mut tracing_stack);
-                    for method in pointer.borrow().methods.values() {
-                        mark_value(method.clone(), reachable_objects, &mut tracing_stack);
+                    for method in pointer.methods.values() {
+                        mark_value(*method, reachable_objects, &mut tracing_stack);
                     }
                 }
                 RuntimeValue::Closure(pointer) => {
-                    let function = pointer.borrow().function.clone();
+                    let function = pointer.function;
                     mark_value(function, reachable_objects, &mut tracing_stack);
 
-                    for upvalue in pointer.borrow().upvalues.iter() {
-                        mark_value(upvalue.clone(), reachable_objects, &mut tracing_stack);
+                    for upvalue in pointer.upvalues.iter() {
+                        mark_value(*upvalue, reachable_objects, &mut tracing_stack);
                     }
                 }
                 RuntimeValue::Instance(pointer) => {
-                    let class = pointer.borrow().class.clone();
+                    let class = pointer.class;
                     mark_value(class, reachable_objects, &mut tracing_stack);
-                    for field in pointer.borrow().fields.values() {
-                        mark_value(field.clone(), reachable_objects, &mut tracing_stack);
+                    for field in pointer.fields.values() {
+                        mark_value(*field, reachable_objects, &mut tracing_stack);
                     }
                 }
                 RuntimeValue::Upvalue(pointer) => {
-                    if let ObjUpvalue::Closed { value } = &*pointer.borrow() {
-                        mark_value(value.clone(), reachable_objects, &mut tracing_stack);
+                    if let ObjUpvalue::Closed { value } = &*pointer {
+                        mark_value(*value, reachable_objects, &mut tracing_stack);
                     }
                 }
                 _ => continue,
@@ -296,7 +227,7 @@ fn mark_value(
     if reachable_objects.contains(&rv) {
         return;
     }
-    reachable_objects.insert(rv.clone());
+    reachable_objects.insert(rv);
     tracing_stack.push(rv);
 }
 
@@ -312,7 +243,7 @@ where
     let mut objects_to_free = Vec::new();
     let keys = store.keys();
     for key in keys {
-        if !reachable_objects.contains(&key.clone().into()) {
+        if !reachable_objects.contains(&key.into()) {
             objects_to_free.push(key);
         }
     }
@@ -357,9 +288,7 @@ mod test {
         let string_to_remove = "should be removed".into();
         let pointer = store.insert_string(string);
         let pointer_to_remove = store.insert_string(string_to_remove);
-        store
-            .value_stack
-            .push(RuntimeValue::String(pointer.clone()));
+        store.value_stack.push(RuntimeValue::String(pointer));
         store.next_gc = 0;
         store.collect_garbage();
         assert!(store.string_store.contains_key(&pointer));
@@ -371,7 +300,7 @@ mod test {
         let mut store = Store::default();
         let string = "should be preserved".into();
         let pointer = store.insert_string(string);
-        store.globals.insert("a".into(), pointer.clone().into());
+        store.globals.insert("a".into(), pointer.into());
         store.next_gc = 0;
         store.collect_garbage();
         assert!(store.string_store.contains_key(&pointer));
@@ -383,10 +312,10 @@ mod test {
         let string = "should be preserved".into();
         let pointer = store.insert_string(string);
         let upvalue = ObjUpvalue::Closed {
-            value: pointer.clone().into(),
+            value: pointer.into(),
         };
         let upvalue_pointer = store.insert_upvalue(upvalue);
-        store.open_upvalues.insert(1, upvalue_pointer.clone());
+        store.open_upvalues.insert(1, upvalue_pointer);
         store.next_gc = 0;
         store.collect_garbage();
         assert!(store.string_store.contains_key(&pointer));
@@ -399,13 +328,13 @@ mod test {
         let function = ObjFunction::default();
         let function_pointer = store.insert_function(function);
         let closure = ObjClosure {
-            function: function_pointer.clone(),
+            function: function_pointer,
             upvalues: Vec::new(),
         };
         let closure_pointer = store.insert_closure(closure);
         store.frame_stack[0] = CallFrame {
-            closure: Some(closure_pointer.clone()),
-            chunk: function_pointer.borrow().chunk.clone(),
+            closure: closure_pointer,
+            chunk: function_pointer.chunk.as_ptr(),
             ip: 0,
             slots: 0,
             start_stack_index: 0,
@@ -423,18 +352,18 @@ mod test {
         let function = ObjFunction::default();
         let function_pointer = store.insert_function(function);
         let closure = ObjClosure {
-            function: function_pointer.clone(),
+            function: function_pointer,
             upvalues: Vec::new(),
         };
         let closure_pointer = store.insert_closure(closure);
         let bound_method = ObjBoundMethod {
             receiver: RuntimeValue::Nil,
-            method: closure_pointer.clone(),
+            method: closure_pointer,
         };
         let bound_method_pointer = store.insert_bound_method(bound_method);
         store
             .globals
-            .insert("test".into(), bound_method_pointer.clone().into());
+            .insert("test".into(), bound_method_pointer.into());
         store.next_gc = 0;
         store.collect_garbage();
         assert!(store.function_store.contains_key(&function_pointer));
@@ -452,20 +381,20 @@ mod test {
         let function = ObjFunction::default();
         let function_pointer = store.insert_function(function);
         let closure = ObjClosure {
-            function: function_pointer.clone(),
+            function: function_pointer,
             upvalues: Vec::new(),
         };
         let closure_pointer = store.insert_closure(closure);
         let mut methods = Table::default();
-        methods.insert(init_string, closure_pointer.clone());
+        methods.insert(init_string, closure_pointer);
         let class = ObjClass {
-            name: class_name_pointer.clone(),
+            name: class_name_pointer,
             methods,
         };
         let class_pointer = store.insert_class(class);
         store
             .globals
-            .insert("test_class".into(), class_pointer.clone().into());
+            .insert("test_class".into(), class_pointer.into());
         store.next_gc = 0;
         store.collect_garbage();
         assert!(store.string_store.contains_key(&class_name_pointer));
@@ -482,13 +411,13 @@ mod test {
         let upvalue = ObjUpvalue::Open { location: 2 };
         let upvalue_pointer = store.insert_upvalue(upvalue);
         let closure = ObjClosure {
-            function: function_pointer.clone(),
-            upvalues: vec![upvalue_pointer.clone()],
+            function: function_pointer,
+            upvalues: vec![upvalue_pointer],
         };
         let closure_pointer = store.insert_closure(closure);
         store
             .globals
-            .insert("closure".into(), closure_pointer.clone().into());
+            .insert("closure".into(), closure_pointer.into());
         store.next_gc = 0;
         store.collect_garbage();
         assert!(store.function_store.contains_key(&function_pointer));
@@ -505,27 +434,27 @@ mod test {
         let function = ObjFunction::default();
         let function_pointer = store.insert_function(function);
         let closure = ObjClosure {
-            function: function_pointer.clone(),
+            function: function_pointer,
             upvalues: Vec::new(),
         };
         let closure_pointer = store.insert_closure(closure);
         let mut methods = Table::default();
-        methods.insert(init_string, closure_pointer.clone());
+        methods.insert(init_string, closure_pointer);
         let class = ObjClass {
-            name: class_name_pointer.clone(),
+            name: class_name_pointer,
             methods,
         };
         let class_pointer = store.insert_class(class);
         let mut fields = Table::default();
         fields.insert("a".into(), RuntimeValue::Nil);
         let instance = ObjInstance {
-            class: class_pointer.clone(),
+            class: class_pointer,
             fields,
         };
         let instance_pointer = store.insert_instance(instance);
         store
             .globals
-            .insert("test_instance".into(), instance_pointer.clone().into());
+            .insert("test_instance".into(), instance_pointer.into());
         store.next_gc = 0;
         store.collect_garbage();
 

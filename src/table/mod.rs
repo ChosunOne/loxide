@@ -46,7 +46,7 @@ impl<T: Clone + Debug + HeapSize> Table<T> {
         match &self.entries[index] {
             Some(e) => match &e.key {
                 Some(_) => match &e.value {
-                    Some(v) => Some(&v),
+                    Some(v) => Some(v),
                     None => None,
                 },
                 None => None,
