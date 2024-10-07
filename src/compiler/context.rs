@@ -51,7 +51,7 @@ impl Context {
     }
 
     pub fn write(&mut self, byte: u8, line: usize) {
-        self.function.chunk.borrow_mut().write(byte, line);
+        self.function.chunk.write(byte, line);
     }
 
     pub fn write_opcode(&mut self, opcode: OpCode, line: usize) {

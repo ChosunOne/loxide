@@ -256,7 +256,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::table::Table;
+    use crate::{chunk::Chunk, table::Table};
 
     use super::*;
 
@@ -334,7 +334,7 @@ mod test {
         let closure_pointer = store.insert_closure(closure);
         store.frame_stack[0] = CallFrame {
             closure: closure_pointer,
-            chunk: function_pointer.chunk.as_ptr(),
+            chunk: &function_pointer.chunk as *const Chunk,
             ip: 0,
             slots: 0,
             start_stack_index: 0,

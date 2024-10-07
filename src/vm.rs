@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     io::{Stderr, Stdout, Write},
-    rc::Rc,
+    ptr::NonNull,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -153,10 +153,14 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         (byte_1 as u16) << 8 | (byte_2 as u16)
     }
 
-    fn read_constant(&mut self) -> Rc<ConstantValue> {
-        let index = self.read_byte();
-        let constant = self.current_chunk().constants[index as usize].clone();
-        constant
+    fn read_constant<'a, 'b>(&'a self, index: usize) -> &'b ConstantValue {
+        let raw = NonNull::from(&self.current_chunk().constants[index as usize]);
+        unsafe {
+            // We are guaranteed never to modify constant values,
+            // so we can return a reference to the underlying data
+            // itself without borrowing from `self`
+            raw.as_ref()
+        }
     }
 
     fn bind_method(&mut self, class: Pointer<ObjClass>, name: &ObjString) -> Result<(), Error> {
@@ -307,7 +311,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
             }
             match instruction {
                 OpCode::Constant => {
-                    let constant = &*self.read_constant();
+                    let index = self.read_byte() as usize;
+                    let constant = self.read_constant(index);
                     let runtime_value = match constant {
                         ConstantValue::Number(n) => RuntimeValue::Number(*n),
                         ConstantValue::String(s) => {
@@ -342,7 +347,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     *self.peek_value(slot_distance) = value;
                 }
                 OpCode::GetGlobal => {
-                    let ConstantValue::String(name) = &*self.read_constant() else {
+                    let index = self.read_byte() as usize;
+                    let ConstantValue::String(name) = self.read_constant(index) else {
                         panic!("IVME: Unexpected constant value.")
                     };
                     let value = match self.store.globals.get(name) {
@@ -355,7 +361,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     self.push_value(value);
                 }
                 OpCode::SetGlobal => {
-                    let ConstantValue::String(name) = &*self.read_constant() else {
+                    let index = self.read_byte() as usize;
+                    let ConstantValue::String(name) = self.read_constant(index) else {
                         panic!("IVME: Unexpected constant value.")
                     };
                     let value = *self.peek_value(0);
@@ -366,7 +373,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     }
                 }
                 OpCode::DefineGlobal => {
-                    let ConstantValue::String(name) = &*self.read_constant() else {
+                    let index = self.read_byte() as usize;
+                    let ConstantValue::String(name) = self.read_constant(index) else {
                         panic!("IVME: Unexpected constant value.")
                     };
                     let value = self.pop_value();
@@ -397,7 +405,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     closure.upvalues[slot] = open_upvalue;
                 }
                 OpCode::GetProperty => {
-                    let ConstantValue::String(name) = &*self.read_constant() else {
+                    let index = self.read_byte() as usize;
+                    let ConstantValue::String(name) = self.read_constant(index) else {
                         panic!("IVME: Unexpected constant value.")
                     };
                     let instance = {
@@ -420,7 +429,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                         self.runtime_error("Only instances have fields.\n".into());
                         return Err(Error::Runtime);
                     };
-                    let ConstantValue::String(name) = &*self.read_constant() else {
+                    let index = self.read_byte() as usize;
+                    let ConstantValue::String(name) = self.read_constant(index) else {
                         panic!("IVME: Unexpected constant value.")
                     };
                     let value = *self.peek_value(0);
@@ -430,7 +440,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     self.push_value(value);
                 }
                 OpCode::GetSuper => {
-                    let ConstantValue::String(name) = &*self.read_constant() else {
+                    let index = self.read_byte() as usize;
+                    let ConstantValue::String(name) = &*self.read_constant(index) else {
                         panic!("IVME: Unexpected constant value.")
                     };
                     let superclass = match self.pop_value() {
@@ -575,22 +586,25 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     self.call_value(callee, arg_count)?;
                 }
                 OpCode::Invoke => {
-                    let ConstantValue::String(method_name) = &*self.read_constant() else {
+                    let index = self.read_byte() as usize;
+                    let ConstantValue::String(method_name) = self.read_constant(index) else {
                         panic!("IVME: Unexpected constant value.")
                     };
                     let arg_count = self.read_byte() as usize;
                     self.invoke(method_name, arg_count)?;
                 }
                 OpCode::SuperInvoke => {
-                    let ConstantValue::String(method_name) = &*self.read_constant() else {
-                        panic!("IVME: Unexpected constant value.")
-                    };
+                    let index = self.read_byte() as usize;
                     let arg_count = self.read_byte() as usize;
                     let class = self.pop_typed::<Pointer<ObjClass>>();
+                    let ConstantValue::String(method_name) = self.read_constant(index) else {
+                        panic!("IVME: Unexpected constant value.")
+                    };
                     self.invoke_from_class(class, method_name, arg_count)?;
                 }
                 OpCode::Closure => {
-                    let ConstantValue::Function(function) = &*self.read_constant().clone() else {
+                    let index = self.read_byte() as usize;
+                    let ConstantValue::Function(function) = self.read_constant(index) else {
                         return Err(Error::Runtime);
                     };
                     let upvalue_count = function.upvalue_count;
@@ -627,7 +641,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     self.push_value(result);
                 }
                 OpCode::Class => {
-                    let ConstantValue::String(name) = &*self.read_constant() else {
+                    let index = self.read_byte() as usize;
+                    let ConstantValue::String(name) = self.read_constant(index) else {
                         panic!("IVME: Unexpected constant value.")
                     };
                     let class = self.new_class(name);
@@ -656,7 +671,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                     self.pop_value(); // Subclass
                 }
                 OpCode::Method => {
-                    let ConstantValue::String(name) = &*self.read_constant() else {
+                    let index = self.read_byte() as usize;
+                    let ConstantValue::String(name) = self.read_constant(index) else {
                         panic!("IVME: Unexpected constant value.")
                     };
                     self.define_method(name)?;
@@ -684,7 +700,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         let function = closure.function;
         *frame = CallFrame {
             closure,
-            chunk: function.chunk.as_ptr(),
+            chunk: &function.chunk as *const Chunk,
             ip: 0,
             slots: arg_count,
             start_stack_index: self.store.value_stack.len() - 1 - arg_count,

@@ -14,7 +14,7 @@ use crate::{
     token::{Token, TokenType},
     value::ConstantValue,
 };
-use std::{cell::RefCell, iter::Peekable, rc::Rc};
+use std::iter::Peekable;
 
 #[derive(Debug)]
 pub struct Class {
@@ -75,8 +75,8 @@ impl Compiler {
             .expect("ICE: Failed to get current context")
     }
 
-    fn current_chunk(&mut self) -> Rc<RefCell<Chunk>> {
-        self.current_context().function.chunk.clone()
+    fn current_chunk(&mut self) -> &mut Chunk {
+        &mut self.current_context().function.chunk
     }
 
     fn current_function_type(&mut self) -> FunctionType {
@@ -110,7 +110,7 @@ impl Compiler {
 
     fn emit_byte(&mut self, byte: u8) {
         let line = self.line;
-        self.current_chunk().borrow_mut().write(byte, line);
+        self.current_chunk().write(byte, line);
     }
 
     fn emit_opcode(&mut self, opcode: OpCode) {
@@ -139,13 +139,13 @@ impl Compiler {
         self.emit_opcode(opcode);
         self.emit_byte(0xffu8);
         self.emit_byte(0xffu8);
-        self.current_chunk().borrow().code.len() - 2
+        self.current_chunk().code.len() - 2
     }
 
     fn emit_loop(&mut self, loop_start: usize) {
         self.emit_opcode(OpCode::Loop);
 
-        let offset = self.current_chunk().borrow().code.len() - loop_start + 2;
+        let offset = self.current_chunk().code.len() - loop_start + 2;
         if offset > u16::MAX as usize {
             self.error("Loop body too large.");
         }
@@ -165,7 +165,7 @@ impl Compiler {
     }
 
     fn make_constant(&mut self, value: ConstantValue) -> u8 {
-        let constant = self.current_chunk().borrow_mut().add_constant(value);
+        let constant = self.current_chunk().add_constant(value);
         if constant > u8::MAX as usize {
             self.error("Too many constants in one chunk.");
             return 0;
@@ -175,15 +175,15 @@ impl Compiler {
 
     fn patch_jump(&mut self, offset: usize) {
         // -2 to adjust for the bytecode for the jump itself
-        let jump = self.current_chunk().borrow().code.len() - offset - 2;
+        let jump = self.current_chunk().code.len() - offset - 2;
         if jump > u16::MAX as usize {
             self.error("Too much code to jump over.");
         }
 
         // High bits
-        self.current_chunk().borrow_mut().code[offset] = ((jump >> 8) & 0xff) as u8;
+        self.current_chunk().code[offset] = ((jump >> 8) & 0xff) as u8;
         // Low bits
-        self.current_chunk().borrow_mut().code[offset + 1] = (jump & 0xff) as u8;
+        self.current_chunk().code[offset + 1] = (jump & 0xff) as u8;
     }
 
     fn pop_context(&mut self) -> Context {
@@ -631,7 +631,7 @@ impl Compiler {
             _ => self.expression_statement(),
         }
 
-        let mut loop_start = self.current_chunk().borrow().code.len();
+        let mut loop_start = self.current_chunk().code.len();
         let mut exit_jump = -1;
         if !self.advance_if_eq(TokenType::Semicolon) {
             self.expression(BindingPower::AssignmentRight);
@@ -642,7 +642,7 @@ impl Compiler {
 
         if !self.advance_if_eq(TokenType::RightParen) {
             let body_jump = self.emit_jump(OpCode::Jump);
-            let increment_start = self.current_chunk().borrow().code.len();
+            let increment_start = self.current_chunk().code.len();
             self.expression(BindingPower::AssignmentRight);
             self.emit_opcode(OpCode::Pop);
             self.consume(TokenType::RightParen, "Expect ')' after for clauses.");
@@ -683,7 +683,7 @@ impl Compiler {
         if !self.advance_if_eq(TokenType::While) {
             panic!("ICE: Failed to find 'while' token for while statement.");
         }
-        let loop_start = self.current_chunk().borrow().code.len();
+        let loop_start = self.current_chunk().code.len();
 
         self.consume(TokenType::LeftParen, "Expect '(' after 'while'.");
         self.expression(BindingPower::AssignmentRight);
@@ -775,7 +775,7 @@ impl Compiler {
                     .as_ref()
                     .unwrap_or(&"<script>".to_string())
             );
-            println!("{}", (*context.function.chunk.borrow()));
+            println!("{}", (&context.function.chunk));
         }
         let upvalues = &context.upvalues[..context.function.upvalue_count];
         let constant = self.make_constant(ConstantValue::from(context.function));
@@ -1081,8 +1081,6 @@ impl Compiler {
 
 #[cfg(test)]
 mod test {
-    use std::{cell::RefCell, rc::Rc};
-
     use super::*;
 
     #[test]
@@ -1095,19 +1093,19 @@ mod test {
         let expected_codes = [OpCode::Nil as u8, OpCode::Return as u8];
         let expected_lines = [1; 2];
 
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
         assert_eq!(function.arity, 0);
         assert_eq!(function.upvalue_count, 0);
         assert!(function.name.is_none());
-        assert_eq!(chunk.borrow().code.len(), 2);
-        assert_eq!(chunk.borrow().lines.len(), 2);
-        assert!(chunk.borrow().constants.is_empty());
+        assert_eq!(chunk.code.len(), 2);
+        assert_eq!(chunk.lines.len(), 2);
+        assert!(chunk.constants.is_empty());
     }
 
     #[test]
@@ -1120,16 +1118,16 @@ mod test {
         let expected_codes = [OpCode::Nil as u8, OpCode::Return as u8];
         let expected_lines = [1; 2];
 
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().code.len(), 2);
-        assert_eq!(chunk.borrow().lines.len(), 2);
-        assert!(chunk.borrow().constants.is_empty());
+        assert_eq!(chunk.code.len(), 2);
+        assert_eq!(chunk.lines.len(), 2);
+        assert!(chunk.constants.is_empty());
     }
 
     #[test]
@@ -1138,8 +1136,8 @@ mod test {
         let compiler = Compiler::new(source);
         let function = compiler.compile().unwrap();
         let chunk = function.chunk;
-        let empty_function_value = &chunk.borrow().constants[1];
-        let ConstantValue::Function(f) = &**empty_function_value else {
+        let empty_function_value = &chunk.constants[1];
+        let ConstantValue::Function(f) = &*empty_function_value else {
             panic!("Failed to get function from chunk.");
         };
         let empty_function_chunk = &f.chunk;
@@ -1162,25 +1160,24 @@ mod test {
             ConstantValue::from(ObjFunction {
                 arity: 0,
                 upvalue_count: 0,
-                chunk: Rc::new(RefCell::new(Chunk {
+                chunk: Chunk {
                     code: expected_function_codes.into(),
                     lines: expected_function_lines.into(),
                     constants: expected_function_constants.clone().into(),
-                })),
+                },
                 name: Some("foo".into()),
             }),
         ];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
         assert_eq!(
-            empty_function_chunk.borrow().code.len(),
+            empty_function_chunk.code.len(),
             expected_function_codes.len()
         );
         for (&code, expected_code) in empty_function_chunk
-            .borrow()
             .code
             .iter()
             .zip(expected_function_codes)
@@ -1188,17 +1185,16 @@ mod test {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
         assert_eq!(
-            empty_function_chunk.borrow().lines.len(),
+            empty_function_chunk.lines.len(),
             expected_function_lines.len()
         );
         for (&line, expected_line) in empty_function_chunk
-            .borrow()
             .lines
             .iter()
             .zip(expected_function_lines)
@@ -1206,22 +1202,16 @@ mod test {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), expected_constants.len());
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .iter()
-            .zip(expected_constants.iter())
-        {
-            assert_eq!(&**constant, expected_constant);
+        assert_eq!(chunk.constants.len(), expected_constants.len());
+        for (constant, expected_constant) in chunk.constants.iter().zip(expected_constants.iter()) {
+            assert_eq!(&*constant, expected_constant);
         }
 
         assert_eq!(
-            empty_function_chunk.borrow().constants.len(),
+            empty_function_chunk.constants.len(),
             expected_function_constants.len()
         );
         for (constant, expected_constant) in empty_function_chunk
-            .borrow()
             .constants
             .iter()
             .zip(expected_function_constants.iter())
@@ -1245,25 +1235,21 @@ mod test {
         let expected_lines = [1; 5];
         let expected_constants = [ConstantValue::from(123.456)];
 
-        assert_eq!(chunk.borrow().code.len(), 5);
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), 5);
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), 5);
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), 5);
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), 1);
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), 1);
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
-            assert_eq!(*constant, expected_constant);
+            assert_eq!(constant, expected_constant);
         }
     }
 
@@ -1282,17 +1268,17 @@ mod test {
 
         let expected_lines = [1; 4];
 
-        assert_eq!(chunk.borrow().code.len(), 4);
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), 4);
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), 4);
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), 4);
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), 0);
+        assert_eq!(chunk.constants.len(), 0);
     }
 
     #[test]
@@ -1310,17 +1296,17 @@ mod test {
 
         let expected_lines = [1; 4];
 
-        assert_eq!(chunk.borrow().code.len(), 4);
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), 4);
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), 4);
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), 4);
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), 0);
+        assert_eq!(chunk.constants.len(), 0);
     }
 
     #[test]
@@ -1338,17 +1324,17 @@ mod test {
 
         let expected_lines = [1; 4];
 
-        assert_eq!(chunk.borrow().code.len(), 4);
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), 4);
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), 4);
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), 4);
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), 0);
+        assert_eq!(chunk.constants.len(), 0);
     }
 
     #[test]
@@ -1366,25 +1352,21 @@ mod test {
         let expected_lines = [1; 5];
         let expected_constants = [ConstantValue::from("hello lox")];
 
-        assert_eq!(chunk.borrow().code.len(), 5);
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), 5);
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), 5);
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), 5);
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), 1);
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), 1);
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
-            assert_eq!(*constant, expected_constant);
+            assert_eq!(constant, expected_constant);
         }
     }
 
@@ -1407,25 +1389,21 @@ mod test {
         let expected_lines = [1; 9];
         let expected_constants = [ConstantValue::from(1.0)];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), 1);
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), 1);
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
-            assert_eq!(*constant, expected_constant);
+            assert_eq!(constant, expected_constant);
         }
     }
 
@@ -1448,25 +1426,21 @@ mod test {
         let expected_lines = [1; 8];
         let expected_constants = [ConstantValue::from(1.0), ConstantValue::from(2.0)];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), 2);
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), 2);
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
-            assert_eq!(*constant, expected_constant);
+            assert_eq!(constant, expected_constant);
         }
     }
 
@@ -1489,25 +1463,21 @@ mod test {
         let expected_lines = [1; 8];
         let expected_constants = [1.0.into(), 2.0.into()];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), 2);
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), 2);
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
-            assert_eq!(*constant, expected_constant);
+            assert_eq!(constant, expected_constant);
         }
     }
 
@@ -1530,25 +1500,21 @@ mod test {
         let expected_lines = [1; 8];
         let expected_constants = [1.0.into(), 2.0.into()];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), 2);
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), 2);
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
-            assert_eq!(*constant, expected_constant);
+            assert_eq!(constant, expected_constant);
         }
     }
 
@@ -1571,25 +1537,21 @@ mod test {
         let expected_lines = [1; 8];
         let expected_constants = [1.0.into(), 2.0.into()];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), 2);
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), 2);
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
-            assert_eq!(*constant, expected_constant);
+            assert_eq!(constant, expected_constant);
         }
     }
 
@@ -1612,25 +1574,21 @@ mod test {
         let expected_lines = [1; 8];
         let expected_constants = [1.0.into(), 2.0.into()];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), 2);
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), 2);
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
-            assert_eq!(*constant, expected_constant);
+            assert_eq!(constant, expected_constant);
         }
     }
 
@@ -1653,25 +1611,21 @@ mod test {
         let expected_lines = [1; 8];
         let expected_constants = [1.0.into(), 2.0.into()];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), 2);
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), 2);
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
-            assert_eq!(*constant, expected_constant);
+            assert_eq!(constant, expected_constant);
         }
     }
 
@@ -1694,25 +1648,21 @@ mod test {
         let expected_lines = [1; 8];
         let expected_constants = [1.0.into(), 2.0.into()];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), 2);
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), 2);
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
-            assert_eq!(*constant, expected_constant);
+            assert_eq!(constant, expected_constant);
         }
     }
 
@@ -1736,25 +1686,21 @@ mod test {
         let expected_lines = [1; 9];
         let expected_constants = [1.0.into(), 2.0.into()];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), 2);
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), 2);
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
-            assert_eq!(*constant, expected_constant);
+            assert_eq!(constant, expected_constant);
         }
     }
 
@@ -1778,25 +1724,21 @@ mod test {
         let expected_lines = [1; 9];
         let expected_constants = [1.0.into(), 2.0.into()];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), 2);
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), 2);
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
-            assert_eq!(*constant, expected_constant);
+            assert_eq!(constant, expected_constant);
         }
     }
 
@@ -1818,12 +1760,9 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 9],
-            constants: vec![1.0.into(), 2.0.into()]
-                .into_iter()
-                .map(Rc::new)
-                .collect(),
+            constants: vec![1.0.into(), 2.0.into()].into_iter().collect(),
         };
-        assert_eq!(&*chunk.borrow(), &expected_chunk);
+        assert_eq!(chunk, expected_chunk);
     }
 
     #[test]
@@ -1846,23 +1785,19 @@ mod test {
         let expected_lines = [1; 9];
         let expected_constants = [];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), 0);
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), 0);
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
             assert_eq!(constant, expected_constant);
         }
@@ -1891,23 +1826,19 @@ mod test {
         let expected_lines = [1; 12];
         let expected_constants = [];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), 0);
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), 0);
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
             assert_eq!(constant, expected_constant);
         }
@@ -1979,25 +1910,21 @@ mod test {
             10.0.into(),
         ];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), expected_constants.len());
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), expected_constants.len());
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
-            assert_eq!(*constant, expected_constant);
+            assert_eq!(constant, expected_constant);
         }
     }
 
@@ -2017,25 +1944,21 @@ mod test {
         let expected_lines = [1; 5];
         let expected_constants = ["a".into()];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), 1);
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), 1);
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
-            assert_eq!(*constant, expected_constant);
+            assert_eq!(constant, expected_constant);
         }
     }
 
@@ -2056,25 +1979,21 @@ mod test {
         let expected_lines = [1; 6];
         let expected_constants = ["a".into(), 1.0.into()];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), 2);
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), 2);
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
-            assert_eq!(*constant, expected_constant);
+            assert_eq!(constant, expected_constant);
         }
     }
 
@@ -2098,25 +2017,21 @@ mod test {
         let expected_lines = [1; 9];
         let expected_constants = ["a".into(), 1.0.into(), "a".into()];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), expected_constants.len());
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), expected_constants.len());
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
-            assert_eq!(*constant, expected_constant);
+            assert_eq!(constant, expected_constant);
         }
     }
 
@@ -2136,23 +2051,19 @@ mod test {
         let expected_lines = [1; 4];
         let expected_constants = [];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), expected_constants.len());
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), expected_constants.len());
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
             assert_eq!(constant, expected_constant);
         }
@@ -2175,25 +2086,21 @@ mod test {
         let expected_lines = [1; 5];
         let expected_constants = [1.0.into()];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), expected_constants.len());
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), expected_constants.len());
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
-            assert_eq!(*constant, expected_constant);
+            assert_eq!(constant, expected_constant);
         }
     }
 
@@ -2222,25 +2129,21 @@ mod test {
         let expected_lines = [1; 13];
         let expected_constants = [1.0.into(), 1.0.into()];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), expected_constants.len());
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), expected_constants.len());
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
-            assert_eq!(*constant, expected_constant);
+            assert_eq!(constant, expected_constant);
         }
     }
 
@@ -2270,25 +2173,21 @@ mod test {
         let expected_lines = [1; 14];
         let expected_constants = ["a".into(), 1.0.into(), "a".into(), "a".into(), 1.0.into()];
 
-        assert_eq!(chunk.borrow().code.len(), expected_codes.len());
-        for (&code, expected_code) in chunk.borrow().code.iter().zip(expected_codes) {
+        assert_eq!(chunk.code.len(), expected_codes.len());
+        for (&code, expected_code) in chunk.code.iter().zip(expected_codes) {
             assert_eq!(code, expected_code);
         }
 
-        assert_eq!(chunk.borrow().lines.len(), expected_lines.len());
-        for (&line, expected_line) in chunk.borrow().lines.iter().zip(expected_lines) {
+        assert_eq!(chunk.lines.len(), expected_lines.len());
+        for (&line, expected_line) in chunk.lines.iter().zip(expected_lines) {
             assert_eq!(line, expected_line);
         }
 
-        assert_eq!(chunk.borrow().constants.len(), expected_constants.len());
-        for (constant, expected_constant) in chunk
-            .borrow()
-            .constants
-            .clone()
-            .into_iter()
-            .zip(expected_constants)
+        assert_eq!(chunk.constants.len(), expected_constants.len());
+        for (constant, expected_constant) in
+            chunk.constants.clone().into_iter().zip(expected_constants)
         {
-            assert_eq!(*constant, expected_constant);
+            assert_eq!(constant, expected_constant);
         }
     }
 
@@ -2335,7 +2234,7 @@ mod test {
                 ConstantValue::from(ObjFunction {
                     arity: 2,
                     upvalue_count: 0,
-                    chunk: Rc::new(RefCell::new(expected_function_chunk)),
+                    chunk: expected_function_chunk,
                     name: Some("foo".into()),
                 }),
                 "foo".into(),
@@ -2343,20 +2242,15 @@ mod test {
                 2.0.into(),
             ]
             .into_iter()
-            .map(Rc::new)
             .collect(),
         };
         println!(
             "{}",
-            chunk
-                .borrow()
-                .constants
-                .iter()
-                .fold(String::new(), |acc, value| {
-                    acc + &value.to_string() + ","
-                })
+            chunk.constants.iter().fold(String::new(), |acc, value| {
+                acc + &value.to_string() + ","
+            })
         );
-        assert_eq!(&*chunk.borrow(), &expected_chunk);
+        assert_eq!(chunk, expected_chunk);
     }
 
     #[test]
@@ -2399,12 +2293,11 @@ mod test {
             constants: vec![ObjFunction {
                 arity: 0,
                 upvalue_count: 2,
-                chunk: Rc::new(RefCell::new(expected_bar_chunk)),
+                chunk: expected_bar_chunk,
                 name: Some("bar".into()),
             }
             .into()]
             .into_iter()
-            .map(Rc::new)
             .collect(),
         };
         let expected_chunk = Chunk {
@@ -2431,7 +2324,7 @@ mod test {
                 ObjFunction {
                     arity: 2,
                     upvalue_count: 0,
-                    chunk: Rc::new(RefCell::new(expected_foo_chunk)),
+                    chunk: expected_foo_chunk,
                     name: Some("foo".into()),
                 }
                 .into(),
@@ -2440,20 +2333,19 @@ mod test {
                 2.0.into(),
             ]
             .into_iter()
-            .map(Rc::new)
             .collect(),
         };
-        let ConstantValue::Function(foo) = &*chunk.borrow().constants[1] else {
+        let ConstantValue::Function(foo) = &chunk.constants[1] else {
             panic!("Failed to read foo chunk.");
         };
 
-        let ConstantValue::Function(bar) = &*foo.chunk.borrow().constants[0] else {
+        let ConstantValue::Function(bar) = &foo.chunk.constants[0] else {
             panic!("Failed to read bar chunk.");
         };
-        println!("{}", &*bar.chunk.borrow());
-        println!("{}", &*foo.chunk.borrow());
-        println!("{}", &*chunk.borrow());
-        assert_eq!(&*chunk.borrow(), &expected_chunk);
+        println!("{}", bar.chunk);
+        println!("{}", foo.chunk);
+        println!("{}", chunk);
+        assert_eq!(chunk, expected_chunk);
     }
 
     #[test]
@@ -2513,10 +2405,9 @@ mod test {
                 1.0.into(),
             ]
             .into_iter()
-            .map(Rc::new)
             .collect(),
         };
-        assert_eq!(&*chunk.borrow(), &expected_chunk);
+        assert_eq!(chunk, expected_chunk);
     }
 
     #[test]
@@ -2565,10 +2456,9 @@ mod test {
             lines: vec![1; 35],
             constants: vec![0.0.into(), 5.0.into(), 1.0.into(), "for loop".into()]
                 .into_iter()
-                .map(Rc::new)
                 .collect(),
         };
-        assert_eq!(&*chunk.borrow(), &expected_chunk);
+        assert_eq!(chunk, expected_chunk);
     }
 
     #[test]
@@ -2621,10 +2511,9 @@ mod test {
                 1.0.into(),
             ]
             .into_iter()
-            .map(Rc::new)
             .collect(),
         };
-        assert_eq!(&*chunk.borrow(), &expected_chunk);
+        assert_eq!(chunk, expected_chunk);
     }
 
     #[test]
@@ -2647,10 +2536,9 @@ mod test {
             lines: vec![1; 9],
             constants: vec!["TestClass".into(), "TestClass".into()]
                 .into_iter()
-                .map(Rc::new)
                 .collect(),
         };
-        assert_eq!(&*chunk.borrow(), &expected_chunk);
+        assert_eq!(chunk, expected_chunk);
     }
 
     #[test]
@@ -2688,16 +2576,15 @@ mod test {
                 ObjFunction {
                     arity: 0,
                     upvalue_count: 0,
-                    chunk: Rc::new(RefCell::new(expected_init_chunk)),
+                    chunk: expected_init_chunk,
                     name: Some("init".into()),
                 }
                 .into(),
             ]
             .into_iter()
-            .map(Rc::new)
             .collect(),
         };
-        assert_eq!(&*chunk.borrow(), &expected_chunk);
+        assert_eq!(chunk, expected_chunk);
     }
 
     #[test]
@@ -2734,7 +2621,6 @@ mod test {
             lines: vec![1; 22],
             constants: vec!["a".into(), 1.0.into(), "b".into(), "a".into(), 2.0.into()]
                 .into_iter()
-                .map(Rc::new)
                 .collect(),
         };
         let expected_chunk = Chunk {
@@ -2761,21 +2647,20 @@ mod test {
                 ObjFunction {
                     arity: 0,
                     upvalue_count: 0,
-                    chunk: Rc::new(RefCell::new(expected_init_chunk)),
+                    chunk: expected_init_chunk,
                     name: Some("init".into()),
                 }
                 .into(),
             ]
             .into_iter()
-            .map(Rc::new)
             .collect(),
         };
-        let ConstantValue::Function(init) = &*chunk.borrow().constants[3] else {
+        let ConstantValue::Function(init) = &chunk.constants[3] else {
             panic!("Failed to get init chunk");
         };
-        println!("{}", &*init.chunk.borrow());
-        println!("{}", &*chunk.borrow());
-        assert_eq!(&*chunk.borrow(), &expected_chunk);
+        println!("{}", init.chunk);
+        println!("{}", chunk);
+        assert_eq!(chunk, expected_chunk);
     }
 
     #[test]
@@ -2809,19 +2694,18 @@ mod test {
                     arity: 0,
                     upvalue_count: 0,
                     name: Some("m".into()),
-                    chunk: Rc::new(RefCell::new(Chunk {
+                    chunk: Chunk {
                         code: vec![OpCode::Nil as u8, OpCode::Return as u8],
                         lines: vec![1; 2],
                         constants: vec![],
-                    })),
+                    },
                 }
                 .into(),
             ]
             .into_iter()
-            .map(Rc::new)
             .collect(),
         };
-        assert_eq!(&*chunk.borrow(), &expected_chunk);
+        assert_eq!(chunk, expected_chunk);
     }
 
     #[test]
@@ -2843,7 +2727,7 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 10],
-            constants: vec!["a".into()].into_iter().map(Rc::new).collect(),
+            constants: vec!["a".into()].into_iter().collect(),
         };
         let expected_m_chunk = Chunk {
             code: vec![
@@ -2856,7 +2740,7 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 7],
-            constants: vec!["a".into()].into_iter().map(Rc::new).collect(),
+            constants: vec!["a".into()].into_iter().collect(),
         };
         let expected_chunk = Chunk {
             code: vec![
@@ -2898,7 +2782,7 @@ mod test {
                 ObjFunction {
                     arity: 1,
                     upvalue_count: 0,
-                    chunk: Rc::new(RefCell::new(expected_init_chunk)),
+                    chunk: expected_init_chunk,
                     name: Some("init".into()),
                 }
                 .into(),
@@ -2906,7 +2790,7 @@ mod test {
                 ObjFunction {
                     arity: 0,
                     upvalue_count: 0,
-                    chunk: Rc::new(RefCell::new(expected_m_chunk)),
+                    chunk: expected_m_chunk,
                     name: Some("m".into()),
                 }
                 .into(),
@@ -2916,10 +2800,9 @@ mod test {
                 "m".into(),
             ]
             .into_iter()
-            .map(Rc::new)
             .collect(),
         };
-        assert_eq!(&*chunk.borrow(), &expected_chunk);
+        assert_eq!(chunk, expected_chunk);
     }
 
     #[test]
@@ -2962,10 +2845,9 @@ mod test {
                 "Child".into(),
             ]
             .into_iter()
-            .map(Rc::new)
             .collect(),
         };
-        assert_eq!(&*chunk.borrow(), &expected_chunk);
+        assert_eq!(chunk, expected_chunk);
     }
 
     #[test]
@@ -2985,7 +2867,7 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 5],
-            constants: vec![1.0.into()].into_iter().map(Rc::new).collect(),
+            constants: vec![1.0.into()].into_iter().collect(),
         };
 
         let expected_init_chunk = Chunk {
@@ -3002,10 +2884,7 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 10],
-            constants: vec!["a".into(), 2.0.into()]
-                .into_iter()
-                .map(Rc::new)
-                .collect(),
+            constants: vec!["a".into(), 2.0.into()].into_iter().collect(),
         };
 
         let expected_m_chunk = Chunk {
@@ -3027,10 +2906,7 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 15],
-            constants: vec!["m".into(), "a".into()]
-                .into_iter()
-                .map(Rc::new)
-                .collect(),
+            constants: vec!["m".into(), "a".into()].into_iter().collect(),
         };
 
         let expected_chunk = Chunk {
@@ -3080,7 +2956,7 @@ mod test {
                 ObjFunction {
                     arity: 0,
                     upvalue_count: 0,
-                    chunk: Rc::new(RefCell::new(expected_super_m_chunk)),
+                    chunk: expected_super_m_chunk,
                     name: Some("m".into()),
                 }
                 .into(),
@@ -3092,7 +2968,7 @@ mod test {
                 ObjFunction {
                     arity: 0,
                     upvalue_count: 0,
-                    chunk: Rc::new(RefCell::new(expected_init_chunk)),
+                    chunk: expected_init_chunk,
                     name: Some("init".into()),
                 }
                 .into(),
@@ -3100,16 +2976,15 @@ mod test {
                 ObjFunction {
                     arity: 0,
                     upvalue_count: 1,
-                    chunk: Rc::new(RefCell::new(expected_m_chunk)),
+                    chunk: expected_m_chunk,
                     name: Some("m".into()),
                 }
                 .into(),
             ]
             .into_iter()
-            .map(Rc::new)
             .collect(),
         };
-        assert_eq!(&*chunk.borrow(), &expected_chunk);
+        assert_eq!(chunk, expected_chunk);
     }
 
     #[test]
@@ -3133,7 +3008,7 @@ mod test {
                 OpCode::Return as u8,
             ],
             lines: vec![1; 11],
-            constants: vec!["a".into()].into_iter().map(Rc::new).collect(),
+            constants: vec!["a".into()].into_iter().collect(),
         };
 
         let expected_bar_chunk = Chunk {
@@ -3162,13 +3037,12 @@ mod test {
                 ObjFunction {
                     arity: 0,
                     upvalue_count: 2,
-                    chunk: Rc::new(RefCell::new(expected_baz_chunk)),
+                    chunk: expected_baz_chunk,
                     name: Some("baz".into()),
                 }
                 .into(),
             ]
             .into_iter()
-            .map(Rc::new)
             .collect(),
         };
 
@@ -3196,13 +3070,12 @@ mod test {
                 ObjFunction {
                     arity: 0,
                     upvalue_count: 1,
-                    chunk: Rc::new(RefCell::new(expected_bar_chunk)),
+                    chunk: expected_bar_chunk,
                     name: Some("bar".into()),
                 }
                 .into(),
             ]
             .into_iter()
-            .map(Rc::new)
             .collect(),
         };
 
@@ -3232,17 +3105,16 @@ mod test {
                 ObjFunction {
                     arity: 0,
                     upvalue_count: 0,
-                    chunk: Rc::new(RefCell::new(expected_foo_chunk)),
+                    chunk: expected_foo_chunk,
                     name: Some("foo".into()),
                 }
                 .into(),
                 "foo".into(),
             ]
             .into_iter()
-            .map(Rc::new)
             .collect(),
         };
-        assert_eq!(&*chunk.borrow(), &expected_chunk);
+        assert_eq!(chunk, expected_chunk);
     }
 
     #[test]

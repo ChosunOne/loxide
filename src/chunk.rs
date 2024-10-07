@@ -1,7 +1,4 @@
-use std::{
-    fmt::{Display, Error},
-    rc::Rc,
-};
+use std::fmt::{Display, Error};
 
 use crate::value::constant::ConstantValue;
 
@@ -9,7 +6,7 @@ use crate::value::constant::ConstantValue;
 pub struct Chunk {
     pub code: Vec<u8>,
     pub lines: Vec<usize>,
-    pub constants: Vec<Rc<ConstantValue>>,
+    pub constants: Vec<ConstantValue>,
 }
 
 impl Chunk {
@@ -19,7 +16,7 @@ impl Chunk {
     }
 
     pub fn add_constant(&mut self, value: ConstantValue) -> usize {
-        self.constants.push(Rc::new(value));
+        self.constants.push(value);
         self.constants.len() - 1
     }
 
@@ -147,7 +144,7 @@ impl Display for Chunk {
                     offset += 1;
                     write!(f, "{:<16}\t{:4}\t", o, constant)?;
                     writeln!(f, "{}", self.constants[constant])?;
-                    let function = match &*self.constants[constant] {
+                    let function = match &self.constants[constant] {
                         ConstantValue::Function(fun) => fun,
                         _ => panic!("Failed to get function from closure."),
                     };
@@ -316,12 +313,8 @@ impl Display for OpCode {
 
 #[cfg(test)]
 mod test {
-
-    use std::cell::RefCell;
-
-    use crate::object::obj_function::ObjFunction;
-
     use super::*;
+    use crate::object::obj_function::ObjFunction;
 
     #[test]
     fn it_prints_constant_ops() {
@@ -439,7 +432,7 @@ mod test {
         let function = ObjFunction {
             arity: 0,
             name: Some(function_name),
-            chunk: Rc::new(RefCell::new(Chunk::default())),
+            chunk: Chunk::default(),
             upvalue_count: 2,
         };
         chunk.add_constant(function.into());
