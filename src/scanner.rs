@@ -5,6 +5,7 @@ pub struct Scanner {
     pub line: usize,
     source: String,
     current_index: usize,
+    eof: bool,
 }
 
 impl Scanner {
@@ -13,6 +14,7 @@ impl Scanner {
             line: 1,
             source,
             current_index: 0,
+            eof: false,
         }
     }
 
@@ -182,7 +184,11 @@ impl Iterator for Scanner {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.skip_whitespace();
+        if self.eof {
+            return None;
+        }
         if self.is_at_end() {
+            self.eof = true;
             return Some(Token {
                 kind: TokenType::Eof,
                 lexeme: "".into(),
@@ -615,6 +621,223 @@ mod test {
                 kind: TokenType::While,
                 lexeme: "while".into(),
                 line: 1,
+            },
+        ];
+
+        for token in expected_tokens {
+            assert_eq!(scanner.next().unwrap(), token);
+        }
+    }
+
+    #[test]
+    fn it_scans_a_simple_program() {
+        let source = r#"
+            fun fib(x) {
+                if (x < 2) {
+                    return 1;
+                }
+                return fib(x - 1) + fib(x - 2);
+            }
+            fib(20);
+        "#;
+        let mut scanner = Scanner::new(source.into());
+        let tokens: Vec<Token> = scanner.clone().collect();
+        println!("{tokens:?}");
+        let expected_tokens = vec![
+            Token {
+                kind: TokenType::Fun,
+                lexeme: "fun".into(),
+                line: 2,
+            },
+            Token {
+                kind: TokenType::Identifier,
+                lexeme: "fib".into(),
+                line: 2,
+            },
+            Token {
+                kind: TokenType::LeftParen,
+                lexeme: "(".into(),
+                line: 2,
+            },
+            Token {
+                kind: TokenType::Identifier,
+                lexeme: "x".into(),
+                line: 2,
+            },
+            Token {
+                kind: TokenType::RightParen,
+                lexeme: ")".into(),
+                line: 2,
+            },
+            Token {
+                kind: TokenType::LeftBrace,
+                lexeme: "{".into(),
+                line: 2,
+            },
+            Token {
+                kind: TokenType::If,
+                lexeme: "if".into(),
+                line: 3,
+            },
+            Token {
+                kind: TokenType::LeftParen,
+                lexeme: "(".into(),
+                line: 3,
+            },
+            Token {
+                kind: TokenType::Identifier,
+                lexeme: "x".into(),
+                line: 3,
+            },
+            Token {
+                kind: TokenType::Less,
+                lexeme: "<".into(),
+                line: 3,
+            },
+            Token {
+                kind: TokenType::Number,
+                lexeme: "2".into(),
+                line: 3,
+            },
+            Token {
+                kind: TokenType::RightParen,
+                lexeme: ")".into(),
+                line: 3,
+            },
+            Token {
+                kind: TokenType::LeftBrace,
+                lexeme: "{".into(),
+                line: 3,
+            },
+            Token {
+                kind: TokenType::Return,
+                lexeme: "return".into(),
+                line: 4,
+            },
+            Token {
+                kind: TokenType::Number,
+                lexeme: "1".into(),
+                line: 4,
+            },
+            Token {
+                kind: TokenType::Semicolon,
+                lexeme: ";".into(),
+                line: 4,
+            },
+            Token {
+                kind: TokenType::RightBrace,
+                lexeme: "}".into(),
+                line: 5,
+            },
+            Token {
+                kind: TokenType::Return,
+                lexeme: "return".into(),
+                line: 6,
+            },
+            Token {
+                kind: TokenType::Identifier,
+                lexeme: "fib".into(),
+                line: 6,
+            },
+            Token {
+                kind: TokenType::LeftParen,
+                lexeme: "(".into(),
+                line: 6,
+            },
+            Token {
+                kind: TokenType::Identifier,
+                lexeme: "x".into(),
+                line: 6,
+            },
+            Token {
+                kind: TokenType::Minus,
+                lexeme: "-".into(),
+                line: 6,
+            },
+            Token {
+                kind: TokenType::Number,
+                lexeme: "1".into(),
+                line: 6,
+            },
+            Token {
+                kind: TokenType::RightParen,
+                lexeme: ")".into(),
+                line: 6,
+            },
+            Token {
+                kind: TokenType::Plus,
+                lexeme: "+".into(),
+                line: 6,
+            },
+            Token {
+                kind: TokenType::Identifier,
+                lexeme: "fib".into(),
+                line: 6,
+            },
+            Token {
+                kind: TokenType::LeftParen,
+                lexeme: "(".into(),
+                line: 6,
+            },
+            Token {
+                kind: TokenType::Identifier,
+                lexeme: "x".into(),
+                line: 6,
+            },
+            Token {
+                kind: TokenType::Minus,
+                lexeme: "-".into(),
+                line: 6,
+            },
+            Token {
+                kind: TokenType::Number,
+                lexeme: "2".into(),
+                line: 6,
+            },
+            Token {
+                kind: TokenType::RightParen,
+                lexeme: ")".into(),
+                line: 6,
+            },
+            Token {
+                kind: TokenType::Semicolon,
+                lexeme: ";".into(),
+                line: 6,
+            },
+            Token {
+                kind: TokenType::RightBrace,
+                lexeme: "}".into(),
+                line: 7,
+            },
+            Token {
+                kind: TokenType::Identifier,
+                lexeme: "fib".into(),
+                line: 8,
+            },
+            Token {
+                kind: TokenType::LeftParen,
+                lexeme: "(".into(),
+                line: 8,
+            },
+            Token {
+                kind: TokenType::Number,
+                lexeme: "20".into(),
+                line: 8,
+            },
+            Token {
+                kind: TokenType::RightParen,
+                lexeme: ")".into(),
+                line: 8,
+            },
+            Token {
+                kind: TokenType::Semicolon,
+                lexeme: ";".into(),
+                line: 8,
+            },
+            Token {
+                kind: TokenType::Eof,
+                lexeme: "".into(),
+                line: 9,
             },
         ];
 

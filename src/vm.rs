@@ -61,7 +61,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         #[cfg(feature = "debug")]
         {
             println!("== {} ==", function);
-            println!("{}", function.chunk.borrow());
+            println!("{}", &function.chunk);
         }
 
         let function_ref = self.store.insert_function(function);
@@ -153,8 +153,8 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
         (byte_1 as u16) << 8 | (byte_2 as u16)
     }
 
-    fn read_constant<'a, 'b>(&'a self, index: usize) -> &'b ConstantValue {
-        let raw = NonNull::from(&self.current_chunk().constants[index as usize]);
+    fn read_constant<'a>(&self, index: usize) -> &'a ConstantValue {
+        let raw = NonNull::from(&self.current_chunk().constants[index]);
         unsafe {
             // We are guaranteed never to modify constant values,
             // so we can return a reference to the underlying data
@@ -441,7 +441,7 @@ impl<Out: Write, EOut: Write> VM<Out, EOut> {
                 }
                 OpCode::GetSuper => {
                     let index = self.read_byte() as usize;
-                    let ConstantValue::String(name) = &*self.read_constant(index) else {
+                    let ConstantValue::String(name) = self.read_constant(index) else {
                         panic!("IVME: Unexpected constant value.")
                     };
                     let superclass = match self.pop_value() {

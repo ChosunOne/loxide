@@ -15,7 +15,6 @@ use crate::{
     value::ConstantValue,
 };
 use std::iter::Peekable;
-
 #[derive(Debug)]
 pub struct Class {
     pub has_super_class: bool,
@@ -30,6 +29,7 @@ pub struct Compiler {
     line: usize,
     context_stack: Vec<Context>,
     class_stack: Vec<Class>,
+    default_eof_token: Token,
 }
 
 impl Compiler {
@@ -44,6 +44,11 @@ impl Compiler {
             previous_token: None,
             context_stack,
             class_stack: Vec::new(),
+            default_eof_token: Token {
+                kind: TokenType::Eof,
+                lexeme: String::from(""),
+                line: 1,
+            },
         }
     }
 
@@ -203,7 +208,7 @@ impl Compiler {
     fn synchronize(&mut self) {
         self.panic_mode = false;
 
-        while self.scanner.peek().unwrap().kind != TokenType::Eof {
+        while self.peek_scanner().kind != TokenType::Eof {
             if self
                 .previous_token
                 .as_ref()
@@ -228,11 +233,8 @@ impl Compiler {
         }
     }
 
-    /// The scanner should never return a `None` value, so we panic if it does
     fn peek_scanner(&mut self) -> &Token {
-        self.scanner
-            .peek()
-            .expect("ICE: Failed to get token from scanner")
+        self.scanner.peek().unwrap_or(&self.default_eof_token)
     }
 
     fn advance_scanner(&mut self) {
